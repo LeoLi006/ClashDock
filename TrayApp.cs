@@ -9,6 +9,7 @@ public sealed class TrayApp : ApplicationContext
     private readonly System.Windows.Forms.Timer _timer;
     private readonly HotkeyWindow _hotkey;
     private PanelForm? _panel;
+    private RoutingForm? _routingPanel;
     private bool _busy;
 
     public TrayApp()
@@ -22,11 +23,11 @@ public sealed class TrayApp : ApplicationContext
             Visible = true,
             Text = "ClashDock 启动中…"
         };
-        _tray.DoubleClick += (_, _) => ShowPanel();
+        _tray.DoubleClick += (_, _) => ShowRouting();
         _tray.ContextMenuStrip = BuildMenu(null, null, false);
 
         _hotkey = new HotkeyWindow();
-        _hotkey.HotkeyPressed += (_, _) => ShowPanel();
+        _hotkey.HotkeyPressed += (_, _) => ShowRouting();
 
         _timer = new System.Windows.Forms.Timer { Interval = 4000 };
         _timer.Tick += async (_, _) => await RefreshAsync();
@@ -170,9 +171,13 @@ public sealed class TrayApp : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
 
-        var open = new ToolStripMenuItem($"打开面板  ({_settings.Hotkey})");
-        open.Click += (_, _) => ShowPanel();
+        var open = new ToolStripMenuItem($"应用 / 网站分流  ({_settings.Hotkey})");
+        open.Click += (_, _) => ShowRouting();
         menu.Items.Add(open);
+
+        var routing = new ToolStripMenuItem("高级面板（模式 / 场景 / 策略组）…");
+        routing.Click += (_, _) => ShowPanel();
+        menu.Items.Add(routing);
 
         var refresh = new ToolStripMenuItem("立即刷新");
         refresh.Click += async (_, _) => await RefreshAsync();
@@ -256,8 +261,24 @@ public sealed class TrayApp : ApplicationContext
         _panel.Activate();
     }
 
+    private void ShowRouting()
+    {
+        if (_routingPanel is null || _routingPanel.IsDisposed)
+        {
+            _routingPanel = new RoutingForm(_client, _settings);
+            _routingPanel.FormClosed += (_, _) => _routingPanel = null;
+        }
+        _routingPanel.Show();
+        if (_routingPanel.WindowState == FormWindowState.Minimized)
+            _routingPanel.WindowState = FormWindowState.Normal;
+        _routingPanel.BringToFront();
+        _routingPanel.Activate();
+    }
+
     private void ExitApp()
     {
+        _routingPanel?.Close();
+        if (_routingPanel is not null && !_routingPanel.IsDisposed) return;
         _timer.Stop();
         _tray.Visible = false;
         _tray.Dispose();

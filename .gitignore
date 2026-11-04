@@ -1,7 +1,12 @@
 **/bin/
 **/obj/
 publish/
-settings.json
+settings.json*
 .vs/
 *.user
 *.suo
+.packages/
+tests/bin/
+tests/obj/
+artifacts/
+*.clashdock*.bak

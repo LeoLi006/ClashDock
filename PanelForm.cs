@@ -76,6 +76,10 @@ public sealed class PanelForm : Form
             await ReloadAsync();
         };
         _modeCard.Controls.Add(_modeSelect);
+        var routing = new PillButton { Text = "应用 / 网站分流", Accent = true, SurfaceColor = Theme.Card };
+        routing.Location = new Point(260, _modeCard.ContentTop);
+        routing.Click += (_, _) => { using var form = new RoutingForm(_client, _settings); form.ShowDialog(this); _ = ReloadAsync(); };
+        _modeCard.Controls.Add(routing);
         _flow.Controls.Add(_modeCard);
 
         // 场景预设卡片（按钮自动换行，高度按内容）

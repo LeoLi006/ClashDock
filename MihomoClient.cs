@@ -13,7 +13,7 @@ public sealed class MihomoClient
     public MihomoClient(string host, int port, string secret)
     {
         _base = $"http://{host}:{port}";
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         if (!string.IsNullOrWhiteSpace(secret))
         {
             _http.DefaultRequestHeaders.Authorization =
@@ -108,6 +108,30 @@ public sealed class MihomoClient
         using var req = new HttpRequestMessage(HttpMethod.Put, url) { Content = body };
         using var resp = await _http.SendAsync(req);
         resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task ReloadAsync(string yaml)
+    {
+        using var body = new StringContent(JsonSerializer.Serialize(new { payload = yaml }), Encoding.UTF8, "application/json");
+        using var resp = await _http.PutAsync($"{_base}/configs?force=true", body);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"内核拒绝配置（HTTP {(int)resp.StatusCode}），请检查端口、代理目标和 Verge 状态。");
+    }
+
+    public async Task<List<string>> GetProxyNamesAsync()
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync($"{_base}/proxies"));
+        return doc.RootElement.GetProperty("proxies").EnumerateObject()
+            .Where(p => p.Value.GetProperty("type").GetString() is not ("Direct" or "Reject" or "Pass" or "Compatible"))
+            .Select(p => p.Name).Where(n => n != "GLOBAL" && n is not (RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup)).OrderBy(n => n).ToList();
+    }
+
+    public async Task<HashSet<string>> GetRuleKeysAsync()
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync($"{_base}/rules"));
+        return doc.RootElement.GetProperty("rules").EnumerateArray()
+            .Select(r => $"{r.GetProperty("type").GetString()}|{r.GetProperty("payload").GetString()}|{r.GetProperty("proxy").GetString()}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 }
 

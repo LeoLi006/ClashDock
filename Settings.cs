@@ -23,6 +23,7 @@ public sealed class Settings
     /// 可直接编辑 settings.json 增删改，或使用「保存当前状态为场景」生成。
     /// </summary>
     public List<Preset> Presets { get; set; } = new();
+    public RoutingSettings Routing { get; set; } = new();
 
     private static string FilePath =>
         Path.Combine(AppContext.BaseDirectory, "settings.json");
@@ -37,6 +38,11 @@ public sealed class Settings
                 var loaded = JsonSerializer.Deserialize<Settings>(text);
                 if (loaded is not null)
                 {
+                    loaded.Presets ??= new();
+                    loaded.Routing ??= new();
+                    loaded.Routing.Applications ??= new();
+                    loaded.Routing.Websites ??= new();
+                    loaded.Routing.AppliedRules ??= new();
                     if (loaded.Presets.Count == 0)
                     {
                         loaded.Presets = Preset.Defaults();
@@ -68,5 +74,13 @@ public sealed class Settings
         {
             // 忽略写入失败（例如只读目录）
         }
+    }
+
+    public void SaveChecked()
+    {
+        var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        var temp = FilePath + ".tmp";
+        File.WriteAllText(temp, json);
+        File.Move(temp, FilePath, true);
     }
 }
