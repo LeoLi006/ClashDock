@@ -9,6 +9,7 @@ internal static class UiPreview
         var draft = new Settings { Routing = new RoutingSettings { Applications = [new() { Target = @"C:\Apps\Code.exe", Mode = "代理" }, new() { Target = @"C:\Apps\WeChat.exe", Mode = "直连" }, new() { Target = @"C:\Apps\CloudMusic.exe", Mode = "自动" }], Websites = [new() { Target = "github.com", Mode = "代理" }, new() { Target = "bilibili.com", Mode = "直连" }] } };
         using var form = new RoutingForm(new MihomoClient("127.0.0.1", 1, ""), draft, preview: true);
         form.Show(); Application.DoEvents();
+        form.MergeApps([new("Visual Studio Code", @"C:\Apps\Code.exe", "示例应用"), new("微信", @"C:\Apps\WeChat.exe", "示例应用"), new("网易云音乐", @"C:\Apps\CloudMusic.exe", "示例应用")]);
         var checks = new Dictionary<string, bool>();
         var apply = Descendants(form).OfType<Button>().Single(b => b.Text == "保存并应用");
         foreach (var size in new[] { new Size(1020, 760), new Size(920, 720), new Size(1280, 850) })

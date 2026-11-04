@@ -15,6 +15,7 @@ public sealed class TrayApp : ApplicationContext
     public TrayApp()
     {
         _settings = Settings.Load();
+        ControllerDiscovery.Apply(_settings);
         _client = new MihomoClient(_settings.Host, _settings.Port, _settings.Secret);
 
         _tray = new NotifyIcon

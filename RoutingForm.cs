@@ -14,6 +14,12 @@ public sealed class RoutingForm : Form
     private readonly TextBox _directory = new() { Width = 420 };
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(850, 0), Padding = new Padding(0, 6, 0, 0) };
     private readonly PillButton _apply = new() { Text = "保存并应用", AutoSize = true };
+    private readonly CancellationTokenSource _catalogLife = new();
+    private readonly HashSet<string> _configuredApps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Image> _appIcons = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TextBox _appSearch = new();
+    private bool _catalogDisposed;
+    private bool _scanBusy;
     private bool _dirty;
     private bool _loading = true;
     private bool _applying;
@@ -23,6 +29,7 @@ public sealed class RoutingForm : Form
         SuspendLayout();
         _client = client;
         _settings = settings;
+        _configuredApps.UnionWith(settings.Routing.Applications.Select(x => x.Target));
         _service = new RoutingService(client, settings);
         Text = "ClashDock · 分流工作台";
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
@@ -38,13 +45,16 @@ public sealed class RoutingForm : Form
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(28, 20, 28, 20), BackColor = Theme.Bg };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, TextRenderer.MeasureText("Ag", Theme.Title).Height + TextRenderer.MeasureText("Ag", Theme.Small).Height + 28));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, TextRenderer.MeasureText("Ag", Theme.Title).Height + 16));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max(_proxy.Height, TextRenderer.MeasureText("Ag", Theme.Body).Height + 14) + 50));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max(80, TextRenderer.MeasureText("Ag", Theme.Small).Height * 3 + 18)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max(80, TextRenderer.MeasureText("Ag", Theme.Small).Height * 2 + 12)));
         var header = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         header.Controls.Add(new Label { Text = "ClashDock", Font = Theme.Title, AutoSize = true, Location = new(0, 0), ForeColor = Theme.Text });
-        header.Controls.Add(new Label { Text = "分流工作台  /  让每个应用，走对的路线", Font = Theme.Small, AutoSize = true, Location = new(2, TextRenderer.MeasureText("Ag", Theme.Title).Height + 6), ForeColor = Theme.SubText });
+        int captionLeft = TextRenderer.MeasureText("ClashDock", Theme.Title).Width + 20;
+        var caption = new Label { Text = "应用与网站分流", Font = Theme.Small, AutoSize = false, AutoEllipsis = true, Location = new(captionLeft, 12), Height = TextRenderer.MeasureText("Ag", Theme.Small).Height + 8, ForeColor = Theme.SubText };
+        header.Controls.Add(caption);
+        header.Resize += (_, _) => caption.Width = Math.Max(0, header.Width - captionLeft - 220);
         var badge = new Label { Text = "MIHOMO · LOCAL", AutoSize = true, ForeColor = Theme.Ok, Font = Theme.Small, Anchor = AnchorStyles.Top | AnchorStyles.Right };
         header.Controls.Add(badge); header.Resize += (_, _) => badge.Location = new(Math.Max(0, header.Width - badge.Width), 15);
         root.Controls.Add(header, 0, 0);
@@ -102,7 +112,7 @@ public sealed class RoutingForm : Form
         }
         _directory.TextChanged += (_, _) => Dirty();
         _proxy.SelectedIndexChanged += (_, _) => Dirty();
-        Load += async (_, _) => { if (!preview) await LoadTargetsAsync(); else { _proxy.Items.Add("示例代理策略组"); _proxy.SelectedIndex = 0; _status.Text = "界面预览 · 隔离示例，不连接控制器或修改代理。"; } _loading = false; };
+        Load += async (_, _) => { if (!preview) { _ = DiscoverAppsAsync(); await LoadTargetsAsync(); } else { _proxy.Items.Add("示例代理策略组"); _proxy.SelectedIndex = 0; _status.Text = "界面预览 · 隔离示例，不连接控制器或修改代理。"; } _loading = false; };
         ResumeLayout(true);
         FormClosing += (_, e) =>
         {
@@ -118,16 +128,15 @@ public sealed class RoutingForm : Form
         var page = new Panel { BackColor = Theme.Card, ForeColor = Theme.Text, Padding = new Padding(18) };
         grid.Columns[0].HeaderText = app ? "应用程序" : "网站域名（含子域名）";
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 0, 0, 14), WrapContents = true, BackColor = Theme.Card };
-        var heading = new Panel { Dock = DockStyle.Top, Height = TextRenderer.MeasureText("Ag", Theme.Sub).Height + TextRenderer.MeasureText("Ag", Theme.Small).Height + 36, BackColor = Theme.Card };
+        var heading = new Panel { Dock = DockStyle.Top, Height = TextRenderer.MeasureText("Ag", Theme.Sub).Height + 18, BackColor = Theme.Card };
         heading.Controls.Add(new Label { Text = app ? "应用规则" : "网站规则", Font = Theme.Sub, AutoSize = true, Location = new(0, 0) });
-        heading.Controls.Add(new Label { Text = app ? "按应用指定路线，完整路径悬停可见。" : "按域名及子域名匹配，网站规则优先。", Font = Theme.Small, AutoSize = true, Location = new(0, TextRenderer.MeasureText("Ag", Theme.Sub).Height + 10), ForeColor = Theme.SubText });
-        var add = new PillButton { Text = app ? "添加应用" : "添加网站", Accent = true, SurfaceColor = Theme.Card };
-        add.Click += (_, _) =>
+
+        var add = new PillButton { Text = app ? "扫描应用" : "添加网站", Accent = true, SurfaceColor = Theme.Card };
+        add.Click += async (_, _) =>
         {
             if (app)
             {
-                using var file = new OpenFileDialog { Filter = "应用程序 (*.exe)|*.exe", CheckFileExists = true };
-                if (file.ShowDialog(this) == DialogResult.OK) Add(grid, file.FileName);
+                add.Enabled = false; try { await DiscoverAppsAsync(); } finally { if (!add.IsDisposed) add.Enabled = true; }
             }
             else
             {
@@ -139,17 +148,33 @@ public sealed class RoutingForm : Form
         bar.Controls.Add(add);
         if (app)
         {
-            var running = new PillButton { Text = "运行中", Outline = true, SurfaceColor = Theme.Card };
-            running.Click += (_, _) => { using var picker = new ApplicationPicker(); if (picker.ShowDialog(this) == DialogResult.OK) Add(grid, picker.SelectedPath); };
+            var running = new PillButton { Text = "手动补充", Outline = true, SurfaceColor = Theme.Card };
+            running.Click += (_, _) => { using var file = new OpenFileDialog { Filter = "应用程序 (*.exe)|*.exe", CheckFileExists = true }; if (file.ShowDialog(this) == DialogResult.OK) Add(grid, file.FileName); };
             bar.Controls.Add(running);
         }
-        var remove = new PillButton { Text = "移除", Outline = true, SurfaceColor = Theme.Card };
-        remove.Click += (_, _) => { foreach (var row in grid.SelectedRows.Cast<DataGridViewRow>().ToArray()) if (!row.IsNewRow) grid.Rows.Remove(row); };
+        var remove = new PillButton { Text = app ? "恢复自动" : "移除", Outline = true, SurfaceColor = Theme.Card };
+        remove.Click += (_, _) => { foreach (var row in grid.SelectedRows.Cast<DataGridViewRow>().ToArray()) if (!row.IsNewRow) { if (app) row.Cells[1].Value = "自动"; else grid.Rows.Remove(row); } };
         bar.Controls.Add(remove);
         page.Controls.Add(grid);
         page.Controls.Add(bar); page.Controls.Add(heading);
+        if (app)
+        {
+            var searchRow = new Panel { Dock = DockStyle.Top, Height = TextRenderer.MeasureText("Ag", Theme.Body).Height + 28 };
+            _appSearch.PlaceholderText = "搜索应用名称或路径"; UiStyle.Input(_appSearch); _appSearch.Dock = DockStyle.Top;
+            searchRow.Controls.Add(_appSearch); page.Controls.Add(searchRow); page.Controls.SetChildIndex(searchRow, 1);
+            _appSearch.TextChanged += (_, _) => FilterApps();
+        }
+        else
+        {
+            var common = new PillButton { Text = "常用站点", Outline = true, SurfaceColor = Theme.Card };
+            var menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Body };
+            foreach (var (name, domain) in new[] { ("GitHub", "github.com"), ("Google", "google.com"), ("YouTube", "youtube.com"), ("ChatGPT", "chatgpt.com"), ("Gemini", "gemini.google.com"), ("哔哩哔哩", "bilibili.com") })
+                menu.Items.Add(name, null, (_, _) => Add(grid, domain));
+            common.Click += (_, _) => menu.Show(common, new Point(0, common.Height));
+            common.Disposed += (_, _) => menu.Dispose(); bar.Controls.Add(common);
+        }
         grid.CellPainting += (_, e) => PaintRule(grid, e, app);
-        grid.Paint += (_, e) => { if (grid.Rows.Count == 0) TextRenderer.DrawText(e.Graphics, app ? "还没有应用规则\n点击「添加应用」开始设置" : "还没有网站规则\n点击「添加网站」开始设置", Theme.Body, new Rectangle(12, 100, Math.Max(1, grid.Width - 24), 70), Theme.SubText, TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak); };
+        grid.Paint += (_, e) => { if (grid.Rows.Count == 0) TextRenderer.DrawText(e.Graphics, app ? "正在发现应用或没有匹配结果\n可点击「扫描应用」重新扫描" : "还没有网站规则\n点击「添加网站」开始设置", Theme.Body, new Rectangle(12, 100, Math.Max(1, grid.Width - 24), 70), Theme.SubText, TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak); };
         return page;
     }
 
@@ -170,17 +195,27 @@ public sealed class RoutingForm : Form
         return page;
     }
 
-    private static void PaintRule(DataGridView grid, DataGridViewCellPaintingEventArgs e, bool app)
+    private void PaintRule(DataGridView grid, DataGridViewCellPaintingEventArgs e, bool app)
     {
         if (e.RowIndex < 0 || e.ColumnIndex < 0 || e.Graphics == null) return;
         var g = e.Graphics; e.PaintBackground(e.ClipBounds, true);
         var r = e.CellBounds; var value = e.Value?.ToString() ?? "";
         if (e.ColumnIndex == 0)
         {
-            var name = app ? Path.GetFileNameWithoutExtension(value) : value;
+            var discovered = grid.Rows[e.RowIndex].Tag as DiscoveredApp;
+            var name = app ? discovered?.Name ?? Path.GetFileNameWithoutExtension(value) : value;
+            int inset = app ? 52 : 14;
+            if (app)
+            {
+                if (!_appIcons.TryGetValue(value, out var image) && _appIcons.Count < 128)
+                {
+                    try { using var icon = Icon.ExtractAssociatedIcon(value); if (icon != null) _appIcons[value] = image = icon.ToBitmap(); } catch (Exception error) when (error is ArgumentException or IOException or System.ComponentModel.Win32Exception) { }
+                }
+                if (image != null) g.DrawImage(image, new Rectangle(r.X + 14, r.Y + (r.Height - 26) / 2, 26, 26));
+            }
             grid.Rows[e.RowIndex].Cells[0].ToolTipText = value;
-            TextRenderer.DrawText(g, name, Theme.Sub, new Rectangle(r.X + 14, r.Y + 10, Math.Max(1, r.Width - 26), TextRenderer.MeasureText("Ag", Theme.Sub).Height), Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-            TextRenderer.DrawText(g, app ? value : "域名及其子域名", Theme.Small, new Rectangle(r.X + 14, r.Y + 16 + TextRenderer.MeasureText("Ag", Theme.Sub).Height, Math.Max(1, r.Width - 26), TextRenderer.MeasureText("Ag", Theme.Small).Height), Theme.SubText, TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g, name, Theme.Sub, new Rectangle(r.X + inset, r.Y + 10, Math.Max(1, r.Width - inset - 12), TextRenderer.MeasureText("Ag", Theme.Sub).Height), Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g, app ? value : "域名及其子域名", Theme.Small, new Rectangle(r.X + inset, r.Y + 16 + TextRenderer.MeasureText("Ag", Theme.Sub).Height, Math.Max(1, r.Width - inset - 12), TextRenderer.MeasureText("Ag", Theme.Small).Height), Theme.SubText, TextFormatFlags.EndEllipsis);
         }
         else
         {
@@ -230,6 +265,49 @@ public sealed class RoutingForm : Form
         Dirty();
     }
 
+    private async Task DiscoverAppsAsync()
+    {
+        if (_scanBusy || IsDisposed) return;
+        _scanBusy = true;
+        try
+        {
+            var found = await ApplicationCatalog.ScanAsync(_catalogLife.Token);
+            if (IsDisposed || _catalogLife.IsCancellationRequested) return;
+            MergeApps(found);
+            if (!_dirty && _status.ForeColor != Theme.Err) { _status.Text = $"发现 {found.Length} 个应用。选择自动、直连或代理，点击保存后生效。"; _status.ForeColor = Theme.SubText; }
+        }
+        catch (OperationCanceledException) { }
+        catch { if (!IsDisposed) Error("部分应用未能识别。可重新扫描，或使用手动补充；现有规则保留。"); }
+        finally { _scanBusy = false; }
+    }
+
+    internal void MergeApps(IEnumerable<DiscoveredApp> apps)
+    {
+        bool loading = _loading; _loading = true;
+        _apps.SuspendLayout();
+        try
+        {
+            var existing = _apps.Rows.Cast<DataGridViewRow>().ToDictionary(r => r.Cells[0].Value?.ToString() ?? "", StringComparer.OrdinalIgnoreCase);
+            foreach (var app in ApplicationCatalog.Normalize(apps))
+            {
+                if (!existing.TryGetValue(app.Path, out var row)) { int index = _apps.Rows.Add(app.Path, "自动"); row = _apps.Rows[index]; existing[app.Path] = row; }
+                row.Tag = app;
+            }
+            FilterApps();
+        }
+        finally { _apps.ResumeLayout(); _loading = loading; }
+    }
+
+    private void FilterApps()
+    {
+        string text = _appSearch.Text.Trim(); _apps.CurrentCell = null;
+        foreach (DataGridViewRow row in _apps.Rows)
+        {
+            var app = row.Tag as DiscoveredApp;
+            row.Visible = text.Length == 0 || (app?.Name ?? "").Contains(text, StringComparison.OrdinalIgnoreCase) || (row.Cells[0].Value?.ToString() ?? "").Contains(text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private void Dirty()
     {
         if (_loading) return;
@@ -246,11 +324,11 @@ public sealed class RoutingForm : Form
             var targets = await _client.GetProxyNamesAsync();
             var wasLoading = _loading;
             _loading = true;
-            try { _proxy.SetItems(targets, selected); }
+            try { _proxy.SetItems(targets, targets.Contains(selected) ? selected : targets.FirstOrDefault()); }
             finally { _loading = wasLoading; }
-            if (!_dirty) { _status.Text = "已连接。添加应用或网站后，选择模式并应用。"; _status.ForeColor = Theme.Ok; }
+            if (!_dirty) { _status.Text = "已连接。应用会自动列出；选择路由方式后保存即可。"; _status.ForeColor = Theme.Ok; }
         }
-        catch { Error("无法连接 Clash。请检查 Verge 外部控制器，以及 settings.json 的地址、端口和密钥。"); }
+        catch { Error("未连接到 Clash。请先启动 Verge 并启用外部控制器；工具会自动读取本机连接配置。便携版可在设置中选择配置文件夹。"); }
     }
 
     private async Task ApplyAsync()
@@ -283,8 +361,19 @@ public sealed class RoutingForm : Form
         }
     }
 
-    private static List<RouteEntry> Entries(DataGridView grid) => grid.Rows.Cast<DataGridViewRow>()
+    private List<RouteEntry> Entries(DataGridView grid) => grid.Rows.Cast<DataGridViewRow>()
+        .Where(r => grid != _apps || r.Tag is not DiscoveredApp || r.Cells[1].Value?.ToString() != "自动" || _configuredApps.Contains(r.Cells[0].Value?.ToString() ?? ""))
         .Select(r => new RouteEntry { Target = r.Cells[0].Value?.ToString() ?? "", Mode = r.Cells[1].Value?.ToString() ?? "自动" }).ToList();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && !_catalogDisposed)
+        {
+            _catalogDisposed = true; _catalogLife.Cancel(); _catalogLife.Dispose();
+            foreach (var icon in _appIcons.Values) icon.Dispose(); _appIcons.Clear();
+        }
+        base.Dispose(disposing);
+    }
 
     private void Error(string message) { _status.ForeColor = Theme.Err; _status.Text = message; }
 }
