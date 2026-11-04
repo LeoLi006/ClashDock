@@ -22,6 +22,7 @@ public sealed class PanelForm : Form
         _client = client;
         _settings = settings;
 
+        UiStyle.Window(this);
         Text = "ClashDock · 代理调度";
         ClientSize = new Size(720, 760);
         MinimumSize = new Size(560, 520);
@@ -41,6 +42,7 @@ public sealed class PanelForm : Form
         _status = new Label
         {
             AutoSize = false,
+            AutoEllipsis = true,
             BackColor = Color.Transparent,
             ForeColor = Theme.SubText,
             Font = Theme.Small,
@@ -156,8 +158,8 @@ public sealed class PanelForm : Form
             _header.Width - _refreshBtn.Width - 22,
             (_header.Height - _refreshBtn.Height) / 2);
         _status.Height = TextRenderer.MeasureText("Ag", _status.Font).Height + 4;
-        _status.Location = new Point(160, (_header.Height - _status.Height) / 2);
-        _status.Width = Math.Max(10, _refreshBtn.Left - 180);
+        _status.Location = new Point(TextRenderer.MeasureText("ClashDock", Theme.Title).Width + 64, (_header.Height - _status.Height) / 2);
+        _status.Width = Math.Max(10, _refreshBtn.Left - _status.Left - 16);
     }
 
     // ---------------------------------------------------------------- 卡片与预设

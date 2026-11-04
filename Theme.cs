@@ -6,21 +6,21 @@ namespace ClashDock;
 /// <summary>统一配色与字体（深色现代风格）。</summary>
 public static class Theme
 {
-    public static readonly Color Bg = Color.FromArgb(21, 23, 29);
-    public static readonly Color Card = Color.FromArgb(31, 34, 43);
-    public static readonly Color Card2 = Color.FromArgb(39, 43, 54);
-    public static readonly Color CardHover = Color.FromArgb(50, 55, 68);
-    public static readonly Color Input = Color.FromArgb(26, 29, 37);
-    public static readonly Color Border = Color.FromArgb(56, 61, 75);
-    public static readonly Color Text = Color.FromArgb(230, 233, 240);
-    public static readonly Color SubText = Color.FromArgb(148, 155, 172);
-    public static readonly Color Accent = Color.FromArgb(94, 134, 255);
-    public static readonly Color AccentHover = Color.FromArgb(122, 156, 255);
-    public static readonly Color Ok = Color.FromArgb(74, 201, 143);
-    public static readonly Color Warn = Color.FromArgb(240, 180, 60);
-    public static readonly Color Err = Color.FromArgb(238, 98, 98);
+    public static readonly Color Bg = Color.FromArgb(17, 21, 28);
+    public static readonly Color Card = Color.FromArgb(24, 30, 40);
+    public static readonly Color Card2 = Color.FromArgb(31, 39, 51);
+    public static readonly Color CardHover = Color.FromArgb(38, 49, 65);
+    public static readonly Color Input = Color.FromArgb(19, 25, 34);
+    public static readonly Color Border = Color.FromArgb(45, 56, 73);
+    public static readonly Color Text = Color.FromArgb(234, 240, 249);
+    public static readonly Color SubText = Color.FromArgb(145, 160, 181);
+    public static readonly Color Accent = Color.FromArgb(52, 120, 235);
+    public static readonly Color AccentHover = Color.FromArgb(76, 143, 255);
+    public static readonly Color Ok = Color.FromArgb(77, 202, 163);
+    public static readonly Color Warn = Color.FromArgb(236, 186, 100);
+    public static readonly Color Err = Color.FromArgb(245, 126, 139);
 
-    public static readonly Font Title = new("Microsoft YaHei UI", 14F, FontStyle.Bold);
+    public static readonly Font Title = new("Microsoft YaHei UI", 18F, FontStyle.Bold);
     public static readonly Font Sub = new("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
     public static readonly Font Body = new("Microsoft YaHei UI", 9.5F);
     public static readonly Font Small = new("Microsoft YaHei UI", 8.5F);

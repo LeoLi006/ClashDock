@@ -76,11 +76,12 @@ internal static class Checks
             IntegrationAsync(temp, yaml, draft).GetAwaiter().GetResult();
             ApplicationConfiguration.Initialize();
             var client = new MihomoClient("127.0.0.1", 1, "");
-            using var form = new RoutingForm(client, new Settings { Routing = draft });
+            using var form = new RoutingForm(client, new Settings { Routing = draft }, preview: true);
             form.Show();
             Application.DoEvents();
             var root = form.Controls.OfType<TableLayoutPanel>().Single();
-            var apply = root.Controls.OfType<FlowLayoutPanel>().SelectMany(f => f.Controls.OfType<Button>()).Single(b => b.Text == "保存并应用");
+            IEnumerable<Control> Descendants(Control parent) { foreach (Control child in parent.Controls) { yield return child; foreach (var nested in Descendants(child)) yield return nested; } }
+            var apply = Descendants(root).OfType<Button>().Single(b => b.Text == "保存并应用");
             Check(form.RectangleToScreen(form.ClientRectangle).Contains(apply.RectangleToScreen(apply.ClientRectangle)), "Apply button fits visible client area");
             using var image = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));

@@ -82,7 +82,7 @@ public sealed class PillButton : Button
             e.Graphics.FillRectangle(sb, ClientRectangle);
 
         var r = new Rectangle(0, 0, Width - 1, Height - 1);
-        using var path = Gfx.Rounded(r, Height / 2);
+        using var path = Gfx.Rounded(r, 9);
 
         Color fill, border, text;
         if (Accent)
@@ -114,6 +114,8 @@ public sealed class PillButton : Button
             using var p = new Pen(border, 1f);
             e.Graphics.DrawPath(p, path);
         }
+        if (!Enabled) text = Theme.SubText;
+        if (Focused) { using var focus = new Pen(Theme.AccentHover, 2); e.Graphics.DrawPath(focus, path); }
         if (_down)
         {
             using var ov = new SolidBrush(Color.FromArgb(36, 0, 0, 0));
@@ -333,7 +335,7 @@ public sealed class ModernSelect : Control
         _list.SelectedIndex = _sel;
 
         int w = Math.Max(Width, 180);
-        int h = Math.Min(300, _items.Count * 26 + 4);
+        int h = Math.Min(300, _items.Count * _list.ItemHeight + 4);
         _list.Size = new Size(w - 2, h - 2);
         if (_dd!.Items.Count > 0)
             _dd.Items[0].Size = _list.Size;
@@ -342,6 +344,7 @@ public sealed class ModernSelect : Control
         _open = true;
         Invalidate();
         _dd.Show(this, new Point(0, Height + 3));
+        _list.Focus();
     }
 
     private void EnsureDropDown()
@@ -353,7 +356,7 @@ public sealed class ModernSelect : Control
         {
             BorderStyle = BorderStyle.None,
             DrawMode = DrawMode.OwnerDrawFixed,
-            ItemHeight = 26,
+            ItemHeight = Math.Max(30, TextRenderer.MeasureText("Ag", Theme.Body).Height + 12),
             IntegralHeight = false,
             BackColor = Theme.Card2,
             ForeColor = Theme.Text,
@@ -361,6 +364,7 @@ public sealed class ModernSelect : Control
             TabStop = false
         };
         _list.DrawItem += OnDrawItem;
+        _list.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { Commit(); e.SuppressKeyPress = true; } else if (e.KeyCode == Keys.Escape) { _dd?.Close(); e.SuppressKeyPress = true; } };
         _list.MouseDown += (_, e) =>
         {
             int i = _list.IndexFromPoint(e.Location);
