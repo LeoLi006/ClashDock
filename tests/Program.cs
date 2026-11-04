@@ -133,7 +133,7 @@ internal static class Checks
                     var map = RoutingCompiler.ReadYaml(live);
                     response = JsonSerializer.Serialize(new { rules = ((YamlSequenceNode)map.Children[new YamlScalarNode("rules")]).Children.Select(r =>
                     {
-                        var p = r.ToString().Split(','); return new { type = p[0] switch { "DOMAIN-SUFFIX" => "DomainSuffix", "PROCESS-PATH" => "ProcessPath", _ => "Match" }, payload = p[1], proxy = p[^1] };
+                        var p = r.ToString().Split(','); return new { type = p[0] switch { "DOMAIN-SUFFIX" => "DomainSuffix", "PROCESS-PATH" => "ProcessPath", _ => "Match" }, payload = p[0] == "MATCH" ? "" : p[1], proxy = p[^1] };
                     }) });
                 }
                 var bytes = Encoding.UTF8.GetBytes(response); context.Response.ContentType = "application/json";

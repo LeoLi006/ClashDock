@@ -22,7 +22,7 @@ internal static class DiscoveryChecks
         checks["automatic_listing_preserves_saved_mode"] = grid.Rows.Count == 2 && grid.Rows[0].Cells[1].Value?.ToString() == "直连";
         checks["discovery_does_not_mark_dirty"] = !Field<bool>(form, "_dirty");
         var added = grid.Rows.Cast<DataGridViewRow>().Single(r => r.Cells[0].Value?.ToString() == @"C:\Apps\Browser.exe");
-        checks["new_discovery_defaults_to_automatic"] = added.Cells[1].Value?.ToString() == "自动";
+        checks["new_discovery_defaults_to_inherited_policy"] = added.Cells[1].Value?.ToString() == "默认";
         var entries = typeof(RoutingForm).GetMethod("Entries", BindingFlags.Instance | BindingFlags.NonPublic)!;
         List<RouteEntry> Saved() => (List<RouteEntry>)entries.Invoke(form, [grid])!;
         checks["untouched_discoveries_not_persisted_as_rules"] = Saved().Count == 1;
@@ -33,6 +33,8 @@ internal static class DiscoveryChecks
         checks["friendly_name_search"] = grid.Rows.Cast<DataGridViewRow>().Count(r => r.Visible) == 1;
         checks["filtered_out_rules_still_saved"] = Saved().Count == 2;
         added.Cells[1].Value = "自动";
+        checks["explicit_auto_is_a_saved_choice"] = Saved().Count == 2;
+        added.Cells[1].Value = "默认";
         checks["reset_discovered_app_removes_override"] = Saved().Count == 1;
         checks["settings_not_changed_before_apply"] = settings.Routing.Applications.Count == 1 && settings.Routing.Applications[0].Mode == "直连";
         using var cancel = new CancellationTokenSource(); cancel.Cancel();

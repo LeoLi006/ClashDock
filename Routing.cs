@@ -15,6 +15,7 @@ public sealed class RoutingSettings
     public string VergeDirectory { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "io.github.clash-verge-rev.clash-verge-rev");
     public string Proxy { get; set; } = "";
+    public string DefaultBehavior { get; set; } = "沿用订阅规则";
     public List<RouteEntry> Applications { get; set; } = new();
     public List<RouteEntry> Websites { get; set; } = new();
     public List<string> AppliedRules { get; set; } = new();
@@ -25,6 +26,7 @@ public static class RoutingCompiler
 {
     public const string DirectGroup = "__ClashDock_DIRECT";
     public const string ProxyGroup = "__ClashDock_PROXY";
+    public const string DefaultGroup = "__ClashDock_DEFAULT_DIRECT";
     public const string Begin = "// <ClashDock managed routing>";
     public const string End = "// </ClashDock managed routing>";
 
@@ -43,6 +45,7 @@ public static class RoutingCompiler
 
     public static List<string> Rules(RoutingSettings settings)
     {
+        if (settings.DefaultBehavior is not ("沿用订阅规则" or "未单独设置的应用全部直连")) throw new ArgumentException("未知默认行为。");
         var result = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // 网站优先；子域名优先于父域名。未指定的网站继续匹配应用和原订阅规则。
@@ -58,6 +61,13 @@ public static class RoutingCompiler
                 throw new ArgumentException("应用必须是 exe 文件名或完整路径，且不能包含逗号或通配符。");
             Add(path ? "PROCESS-PATH" : "PROCESS-NAME", target, entry.Mode);
         }
+        if (settings.DefaultBehavior == "未单独设置的应用全部直连")
+        {
+            var automatic = settings.Applications.Where(x => x.Mode == "自动").Select(x => "(" + (x.Target.Contains('\\') || x.Target.Contains('/') ? "PROCESS-PATH," : "PROCESS-NAME,") + x.Target.Trim() + ")").ToArray();
+            // A default override precedes the intact subscription, but excludes explicitly automatic applications.
+            string fallback = automatic.Length == 0 ? "MATCH," : automatic.Length == 1 ? "NOT,(" + automatic[0] + ")," : "NOT,((OR,(" + string.Join(",", automatic) + "))),";
+            result.Add(fallback + DefaultGroup);
+        }
         return result;
 
         void Add(string type, string target, string mode)
@@ -70,6 +80,25 @@ public static class RoutingCompiler
             var outbound = mode == "直连" ? DirectGroup : ProxyGroup;
             result.Add($"{type},{target},{outbound}");
         }
+    }
+
+    internal static bool RulesConfirmed(RoutingSettings settings, string[] live)
+    {
+        var expected = Rules(settings);
+        bool Managed(string key) => new[] { DirectGroup, ProxyGroup, DefaultGroup }.Any(g => key.EndsWith("|" + g, StringComparison.Ordinal));
+        if (live.Count(Managed) != expected.Count || live.Length < expected.Count) return false;
+        for (int i = 0; i < expected.Count; i++)
+        {
+            var api = live[i].Split('|'); var parts = expected[i].Split(',');
+            if (api.Length != 3 || api[2] != parts[^1]) return false;
+            if (parts[^1] == DefaultGroup)
+            {
+                if (!api[0].Replace("-", "").Equals(parts[0], StringComparison.OrdinalIgnoreCase)) return false;
+                if (parts[0] == "NOT" && settings.Applications.Where(a => a.Mode == "自动").Any(a => !api[1].Contains(a.Target.Trim(), StringComparison.OrdinalIgnoreCase))) return false;
+            }
+            else if (!api[0].Replace("-", "").Equals(parts[0].Replace("-", ""), StringComparison.OrdinalIgnoreCase) || !api[1].Equals(parts[1], StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        return true;
     }
 
     public static string StripScript(string source)
@@ -92,7 +121,7 @@ public static class RoutingCompiler
             "main = function(config, profileName) {\n" +
             "  config = __clashDockMain(config, profileName);\n" +
             "  if (!config || typeof config !== 'object') throw new Error('Invalid original main result');\n" +
-            "  config['proxy-groups'] = (config['proxy-groups'] || []).filter(function(g) { return g.name !== '" + DirectGroup + "' && g.name !== '" + ProxyGroup + "'; }).concat(" + JsonSerializer.Serialize(Groups(rules, proxy)) + ");\n" +
+            "  config['proxy-groups'] = (config['proxy-groups'] || []).filter(function(g) { return g.name !== '" + DirectGroup + "' && g.name !== '" + ProxyGroup + "' && g.name !== '" + DefaultGroup + "'; }).concat(" + JsonSerializer.Serialize(Groups(rules, proxy)) + ");\n" +
             "  config.rules = " + JsonSerializer.Serialize(rules) + ".concat(config.rules || []);\n" +
             "  config['find-process-mode'] = 'always';\n" +
             "  return config;\n};\n" + End + "\n";
@@ -109,7 +138,7 @@ public static class RoutingCompiler
     public static List<Dictionary<string, object>> Groups(List<string> rules, string proxy)
     {
         var groups = new List<Dictionary<string, object>>();
-        foreach (var (name, target) in new[] { (DirectGroup, "DIRECT"), (ProxyGroup, proxy) })
+        foreach (var (name, target) in new[] { (DirectGroup, "DIRECT"), (ProxyGroup, proxy), (DefaultGroup, "DIRECT") })
             if (rules.Any(r => r.EndsWith("," + name, StringComparison.Ordinal)))
                 groups.Add(new() { ["name"] = name, ["type"] = "select", ["proxies"] = new[] { target } });
         return groups;
@@ -123,14 +152,14 @@ public static class RoutingCompiler
             ? seq.Children.OfType<YamlScalarNode>().Select(n => n.Value ?? "").ToList()
             : throw new InvalidOperationException("运行配置缺少规则列表。");
         var replacement = new YamlSequenceNode();
-        foreach (var rule in rules.Concat(existing.Where(r => !r.EndsWith("," + DirectGroup, StringComparison.Ordinal) && !r.EndsWith("," + ProxyGroup, StringComparison.Ordinal))))
+        foreach (var rule in rules.Concat(existing.Where(r => !r.EndsWith("," + DirectGroup, StringComparison.Ordinal) && !r.EndsWith("," + ProxyGroup, StringComparison.Ordinal) && !r.EndsWith("," + DefaultGroup, StringComparison.Ordinal))))
             replacement.Add(new YamlScalarNode(rule));
         map.Children[key] = replacement;
         var groupKey = new YamlScalarNode("proxy-groups");
         var groupList = map.Children.TryGetValue(groupKey, out var groupsNode) && groupsNode is YamlSequenceNode existingGroups
             ? existingGroups : new YamlSequenceNode();
         foreach (var group in groupList.Children.OfType<YamlMappingNode>().Where(g =>
-            g.Children.TryGetValue(new YamlScalarNode("name"), out var name) && name.ToString() is DirectGroup or ProxyGroup).ToList())
+            g.Children.TryGetValue(new YamlScalarNode("name"), out var name) && name.ToString() is DirectGroup or ProxyGroup or DefaultGroup).ToList())
             groupList.Children.Remove(group);
         foreach (var group in Groups(rules, proxy))
             groupList.Add(new YamlMappingNode
@@ -147,18 +176,20 @@ public static class RoutingCompiler
     }
 }
 
-public sealed class RoutingService(MihomoClient client, Settings settings)
+public sealed class RoutingService(MihomoClient client, Settings settings, Action? save = null)
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _gate = NetworkGate.Gate;
 
     public async Task ApplyAsync(RoutingSettings draft)
     {
         await _gate.WaitAsync();
         try
         {
-            if (settings.Host is not ("localhost" or "127.0.0.1" or "::1"))
+            if (settings.Host is not ("localhost" or "127.0.0.1" or "::1" or "[::1]"))
                 throw new InvalidOperationException("分流配置仅支持本机 Verge 控制器。");
             var rules = RoutingCompiler.Rules(draft);
+            var networkBefore = await client.GetNetworkAsync();
+            var orderedRulesBefore = await client.GetRuleSequenceAsync();
             if (draft.Applications.Any(e => e.Mode == "代理") || draft.Websites.Any(e => e.Mode == "代理"))
             {
                 var names = await client.GetProxyNamesAsync();
@@ -179,10 +210,12 @@ public sealed class RoutingService(MihomoClient client, Settings settings)
                 throw new InvalidOperationException("全局脚本路径无效。");
             var originalScript = await File.ReadAllTextAsync(scriptPath);
             var originalRuntime = await File.ReadAllTextAsync(runtimePath);
+            if (!SubscriptionMatches(originalRuntime, orderedRulesBefore))
+                throw new InvalidOperationException("当前内核的非托管规则与 Verge 生成配置不一致，未覆盖网络配置。请先在 Verge 重新生成／应用当前订阅，再重试。");
             var updatedScript = RoutingCompiler.Script(originalScript, rules, draft.Proxy);
-            var updatedRuntime = RoutingCompiler.Runtime(originalRuntime, rules, draft.Proxy);
+            var updatedRuntime = PreserveNetwork(RoutingCompiler.Runtime(originalRuntime, rules, draft.Proxy), networkBefore);
             var selections = await client.GetSelectorGroupsAsync();
-            var previousMode = await client.GetModeAsync();
+            var previousMode = networkBefore.Mode;
             var originalSettings = settings.Routing;
             // 备份仅包含全局脚本，不复制订阅；仅在用户点击应用时修改。
             var backup = scriptPath + ".clashdock-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".bak";
@@ -193,36 +226,91 @@ public sealed class RoutingService(MihomoClient client, Settings settings)
             try
             {
                 await client.ReloadAsync(updatedRuntime);
-                var applied = await client.GetRuleKeysAsync();
-                foreach (var rule in rules)
-                {
-                    var parts = rule.Split(',');
-                    var type = parts[0] switch { "DOMAIN-SUFFIX" => "DomainSuffix", "PROCESS-PATH" => "ProcessPath", _ => "ProcessName" };
-                    if (!applied.Contains($"{type}|{parts[1]}|{parts[2]}"))
-                        throw new InvalidOperationException("内核未确认全部分流规则，已尝试恢复原配置。");
-                }
+                if (!RoutingCompiler.RulesConfirmed(draft, await client.GetRuleSequenceAsync()))
+                    throw new InvalidOperationException("托管规则内容、顺序或默认行为未被内核确认。");
+                var networkAfter = await client.GetNetworkAsync();
+                if (networkAfter.Mode != "rule" || !SameTun(networkBefore, networkAfter)) throw new InvalidOperationException("规则模式或原 TUN 状态未被内核确认。");
+                await RestoreSelections(client, selections);
                 draft.AppliedRules = rules;
                 settings.Routing = draft;
-                settings.SaveChecked();
+                (save ?? settings.SaveChecked)();
             }
-            catch
+            catch (Exception error)
             {
                 settings.Routing = originalSettings;
-                if (await File.ReadAllTextAsync(scriptPath) == updatedScript)
-                    await AtomicWriteAsync(scriptPath, originalScript);
-                try { await client.ReloadAsync(RoutingCompiler.Runtime(originalRuntime, originalSettings.AppliedRules, originalSettings.Proxy)); await client.SetModeAsync(previousMode); }
-                catch { throw new InvalidOperationException("应用失败，原脚本已恢复；内核恢复未确认，请在 Verge 中重新启用当前订阅。"); }
-                throw;
-            }
-            finally
-            {
-                // 内核重载可能重置组选择，尽量恢复原来的有效选择。
-                foreach (var group in selections)
-                    if (group.Name is not (RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup))
-                    try { if (!string.IsNullOrEmpty(group.Now)) await client.SelectAsync(group.Name, group.Now); } catch { /* 切订阅后组可能消失 */ }
+                bool scriptRestored = false, runtimeRestored = false;
+                try
+                {
+                    var current = await File.ReadAllTextAsync(scriptPath);
+                    if (current == updatedScript) await AtomicWriteAsync(scriptPath, originalScript);
+                    scriptRestored = await File.ReadAllTextAsync(scriptPath) == originalScript;
+                }
+                catch { }
+                try
+                {
+                    var rollback = PreserveNetwork(RoutingCompiler.Runtime(originalRuntime, originalSettings.AppliedRules, originalSettings.Proxy), networkBefore, preserveMode: true);
+                    await client.ReloadAsync(rollback);
+                    await client.PatchConfigAsync(new { mode = previousMode, tun = networkBefore.Tun });
+                    await RestoreSelections(client, selections);
+                    var state = await client.GetNetworkAsync();
+                    runtimeRestored = state.Mode == previousMode && SameTun(networkBefore, state) && orderedRulesBefore.SequenceEqual(await client.GetRuleSequenceAsync());
+                }
+                catch { }
+                throw new InvalidOperationException(error.Message + (scriptRestored && runtimeRestored
+                    ? "\n应用失败：原脚本、规则顺序、策略组及 TUN／模式已恢复并核验；草稿保留。"
+                    : $"\n应用失败：原脚本{(scriptRestored ? "已恢复" : "恢复未确认")}，运行配置{(runtimeRestored ? "已核验" : "恢复未确认")}。请在 Verge 检查后重试；草稿保留。"));
             }
         }
         finally { _gate.Release(); }
+    }
+
+    internal static bool SubscriptionMatches(string yaml, string[] live)
+    {
+        bool Managed(string proxy) => proxy is RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup or RoutingCompiler.DefaultGroup;
+        string Normalize(string type, string payload, string proxy) => type.Replace("-", "").ToUpperInvariant() + "|" + payload + "|" + proxy;
+        var map = RoutingCompiler.ReadYaml(yaml);
+        var source = ((YamlSequenceNode)map.Children[new YamlScalarNode("rules")]).Children.Select(node =>
+        {
+            string rule = node.ToString(); var fields = new List<string>(); int depth = 0, start = 0;
+            for (int i = 0; i < rule.Length; i++) { if (rule[i] == '(') depth++; else if (rule[i] == ')') depth--; else if (rule[i] == ',' && depth == 0) { fields.Add(rule[start..i].Trim()); start = i + 1; } }
+            fields.Add(rule[start..].Trim());
+            bool match = fields[0] == "MATCH";
+            if (fields.Count < (match ? 2 : 3)) throw new InvalidOperationException("无法核验原订阅规则，未覆盖配置。");
+            return (Type: fields[0], Payload: match ? "" : fields[1], Proxy: match ? fields[1] : fields[2]);
+        }).Where(r => !Managed(r.Proxy)).Select(r => Normalize(r.Type, r.Payload, r.Proxy));
+        var current = live.Select(r => r.Split('|')).Where(r => r.Length == 3 && !Managed(r[2])).Select(r => Normalize(r[0], r[1], r[2]));
+        return source.SequenceEqual(current);
+    }
+
+    private static bool SameTun(NetworkSnapshot a, NetworkSnapshot b) => a.HasTun == b.HasTun && System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(a.Tun.GetRawText()), System.Text.Json.Nodes.JsonNode.Parse(b.Tun.GetRawText()));
+    private static string PreserveNetwork(string yaml, NetworkSnapshot network, bool preserveMode = false)
+    {
+        var map = RoutingCompiler.ReadYaml(yaml);
+        // Keep live runtime ports and TUN settings rather than stale values from the generated file.
+        foreach (var property in network.Config.EnumerateObject().Where(p => p.Name is "tun" or "port" or "socks-port" or "mixed-port" or "redir-port" or "tproxy-port" or "allow-lan" or "bind-address" or "ipv6" or "interface-name" or "routing-mark" or "log-level" or "tcp-concurrent" or "unified-delay"))
+            map.Children[new YamlScalarNode(property.Name)] = new YamlStreamFromJson(property.Value).Node;
+        if (preserveMode) map.Children[new YamlScalarNode("mode")] = new YamlScalarNode(network.Mode);
+        using var writer = new StringWriter(); new YamlStream(new YamlDocument(map)).Save(writer, false); return writer.ToString();
+    }
+    private sealed class YamlStreamFromJson(JsonElement value)
+    {
+        public YamlNode Node { get; } = Convert(value);
+        private static YamlNode Convert(JsonElement value) => value.ValueKind switch
+        {
+            JsonValueKind.Object => new YamlMappingNode(value.EnumerateObject().Select(p => new KeyValuePair<YamlNode, YamlNode>(new YamlScalarNode(p.Name), Convert(p.Value)))),
+            JsonValueKind.Array => new YamlSequenceNode(value.EnumerateArray().Select(Convert)),
+            JsonValueKind.String => new YamlScalarNode(value.GetString()),
+            JsonValueKind.Null => new YamlScalarNode("null"),
+            _ => new YamlScalarNode(value.GetRawText())
+        };
+    }
+    private static async Task RestoreSelections(MihomoClient client, List<ProxyGroup> before)
+    {
+        foreach (var group in before.Where(g => g.Name is not (RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup or RoutingCompiler.DefaultGroup) && g.Now.Length > 0))
+            await client.SelectAsync(group.Name, group.Now);
+        var after = await client.GetSelectorGroupsAsync();
+        if (before.Where(g => g.Name is not (RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup or RoutingCompiler.DefaultGroup) && g.Now.Length > 0).Any(g => !after.Any(a => a.Name == g.Name && a.Now == g.Now)))
+            throw new InvalidOperationException("策略组原选择恢复未确认。");
     }
 
     private static async Task AtomicWriteAsync(string path, string content)

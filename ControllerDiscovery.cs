@@ -14,6 +14,7 @@ internal static class ControllerDiscovery
     }
     internal static void Apply(Settings settings)
     {
+        if (settings.UseManualController) return;
         var directory = string.IsNullOrWhiteSpace(settings.Routing.VergeDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "io.github.clash-verge-rev.clash-verge-rev") : settings.Routing.VergeDirectory;
         try

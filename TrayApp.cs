@@ -39,22 +39,6 @@ public sealed class TrayApp : ApplicationContext
 
     private async Task InitAsync()
     {
-        if (await _client.PingAsync())
-        {
-            if (_settings.ForceRuleModeOnStart)
-            {
-                try
-                {
-                    var mode = await _client.GetModeAsync();
-                    if (!string.Equals(mode, "rule", StringComparison.OrdinalIgnoreCase))
-                        await _client.SetModeAsync("rule");
-                }
-                catch
-                {
-                    // 忽略
-                }
-            }
-        }
         await RefreshAsync();
     }
 
@@ -195,6 +179,7 @@ public sealed class TrayApp : ApplicationContext
 
     private async Task SafeSetModeAsync(string mode)
     {
+        if (!NetworkConfirmation.Ask(null, $"将当前运行模式切换为 {mode}；可能改变现有流量路由。")) return;
         try
         {
             await _client.SetModeAsync(mode);
@@ -208,6 +193,7 @@ public sealed class TrayApp : ApplicationContext
 
     private async Task SafeSelectAsync(string group, string option)
     {
+        if (!NetworkConfirmation.Ask(null, $"策略组 {group} 将切换为 {option}。")) return;
         try
         {
             await _client.SelectAsync(group, option);
@@ -221,6 +207,7 @@ public sealed class TrayApp : ApplicationContext
 
     private async Task SafeApplyPresetAsync(Preset preset)
     {
+        try { if (!NetworkConfirmation.Ask(null, await NetworkConfirmation.PresetPreview(_client, preset))) return; } catch { return; }
         try
         {
             await PresetEngine.ApplyAsync(_client, preset);

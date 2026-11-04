@@ -8,11 +8,12 @@ namespace ClashDock;
 /// </summary>
 public sealed class Settings
 {
+    public bool UseManualController { get; set; }
     public string Host { get; set; } = "127.0.0.1";
     public int Port { get; set; } = 9097;
     public string Secret { get; set; } = "set-your-secret";
 
-    /// <summary>启动时若发现不是规则模式，自动切回（解决 Verge 重启重置为全局模式）。</summary>
+    /// <summary>旧配置兼容字段；当前版本不在启动时改网络模式，始终需用户确认。</summary>
     public bool ForceRuleModeOnStart { get; set; } = true;
 
     /// <summary>弹出面板的全局热键，格式如 Ctrl+Alt+Shift+F10。</summary>

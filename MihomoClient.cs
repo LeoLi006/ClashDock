@@ -9,16 +9,48 @@ public sealed class MihomoClient
 {
     private readonly HttpClient _http;
     private readonly string _base;
+    private readonly string _secret;
+    public bool IsLocal { get; }
 
-    public MihomoClient(string host, int port, string secret)
+    public MihomoClient(string host, int port, string secret, HttpMessageHandler? handler = null)
     {
+        IsLocal = host is "localhost" or "127.0.0.1" or "::1" or "[::1]";
+        _secret = secret;
         _base = $"http://{host}:{port}";
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        _http = handler == null ? new HttpClient() : new HttpClient(handler);
+        _http.Timeout = TimeSpan.FromSeconds(20);
         if (!string.IsNullOrWhiteSpace(secret))
         {
             _http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", secret);
         }
+    }
+
+    public async Task<NetworkSnapshot> GetNetworkAsync()
+    {
+        using var response = await _http.GetAsync($"{_base}/configs"); await EnsureAsync(response);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("mode", out var mode) || mode.ValueKind != JsonValueKind.String || mode.GetString() is not ("rule" or "global" or "direct"))
+            throw new IOException("控制器返回的网络模式无效，未认定运行正常。");
+        return new NetworkSnapshot(doc.RootElement.Clone());
+    }
+    public async Task PatchConfigAsync(object payload)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"{_base}/configs") { Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json") };
+        using var response = await _http.SendAsync(request); await EnsureAsync(response);
+    }
+    private async Task EnsureAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        string reason = response.StatusCode switch { System.Net.HttpStatusCode.Unauthorized => "控制器认证失败，请刷新本机连接配置", System.Net.HttpStatusCode.Forbidden => "控制器拒绝权限，请检查 Verge 服务模式", _ => "内核拒绝操作" };
+        try { using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()); if (doc.RootElement.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String) reason += "：" + message.GetString(); } catch (JsonException) { }
+        if (_secret.Length > 0) reason = reason.Replace(_secret, "[已隐藏]");
+        throw new InvalidOperationException($"HTTP {(int)response.StatusCode} · " + reason[..Math.Min(500, reason.Length)]);
+    }
+    public async Task<string[]> GetRuleSequenceAsync()
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync($"{_base}/rules"));
+        return doc.RootElement.GetProperty("rules").EnumerateArray().Select(r => $"{r.GetProperty("type").GetString()}|{r.GetProperty("payload").GetString()}|{r.GetProperty("proxy").GetString()}").ToArray();
     }
 
     /// <summary>连通性探测。</summary>
@@ -114,8 +146,7 @@ public sealed class MihomoClient
     {
         using var body = new StringContent(JsonSerializer.Serialize(new { payload = yaml }), Encoding.UTF8, "application/json");
         using var resp = await _http.PutAsync($"{_base}/configs?force=true", body);
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"内核拒绝配置（HTTP {(int)resp.StatusCode}），请检查端口、代理目标和 Verge 状态。");
+        await EnsureAsync(resp);
     }
 
     public async Task<List<string>> GetProxyNamesAsync()
@@ -123,7 +154,7 @@ public sealed class MihomoClient
         using var doc = JsonDocument.Parse(await _http.GetStringAsync($"{_base}/proxies"));
         return doc.RootElement.GetProperty("proxies").EnumerateObject()
             .Where(p => p.Value.GetProperty("type").GetString() is not ("Direct" or "Reject" or "Pass" or "Compatible"))
-            .Select(p => p.Name).Where(n => n != "GLOBAL" && n is not (RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup)).OrderBy(n => n).ToList();
+            .Select(p => p.Name).Where(n => n != "GLOBAL" && n is not (RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup or RoutingCompiler.DefaultGroup)).OrderBy(n => n).ToList();
     }
 
     public async Task<HashSet<string>> GetRuleKeysAsync()

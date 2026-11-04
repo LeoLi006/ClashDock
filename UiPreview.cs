@@ -16,6 +16,8 @@ internal static class UiPreview
         {
             form.ClientSize = size; Application.DoEvents();
             var buttonRect = apply.RectangleToScreen(apply.ClientRectangle);
+            var tun = Descendants(form).OfType<PillButton>().Single(b => b.Text.Contains("TUN"));
+            checks[$"tun_visible_{size.Width}"] = form.RectangleToScreen(form.ClientRectangle).Contains(tun.RectangleToScreen(tun.ClientRectangle));
             checks[$"apply_visible_{size.Width}"] = form.RectangleToScreen(form.ClientRectangle).Contains(buttonRect);
             foreach (var section in new[] { "应用规则", "网站规则", "设置与说明" })
             {

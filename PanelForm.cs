@@ -74,6 +74,7 @@ public sealed class PanelForm : Form
         {
             if (_updating || _modeSelect.SelectedItem is not string m)
                 return;
+            if (!NetworkConfirmation.Ask(this, $"将运行模式切换为 {m}，可能改变流量路由。")) { await ReloadAsync(); return; }
             await SafeAsync(() => _client.SetModeAsync(m));
             await ReloadAsync();
         };
@@ -181,6 +182,7 @@ public sealed class PanelForm : Form
             var btn = new PillButton { Text = captured.Name, Accent = true };
             btn.Click += async (_, _) =>
             {
+                if (!NetworkConfirmation.Ask(this, await NetworkConfirmation.PresetPreview(_client, captured))) return;
                 await SafeAsync(() => PresetEngine.ApplyAsync(_client, captured));
                 await ReloadAsync();
             };
@@ -278,6 +280,7 @@ public sealed class PanelForm : Form
             {
                 if (_updating || row.Selector.SelectedItem is not string opt)
                     return;
+                if (!NetworkConfirmation.Ask(this, $"策略组 {capturedGroup} → {opt}")) return;
                 await SafeAsync(() => _client.SelectAsync(capturedGroup, opt));
             };
             _flow.Controls.Add(row);
