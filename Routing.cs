@@ -289,7 +289,20 @@ public sealed class RoutingService(MihomoClient client, Settings settings, Actio
     internal static bool SubscriptionMatches(string yaml, string[] live)
     {
         bool Managed(string proxy) => proxy is RoutingCompiler.DirectGroup or RoutingCompiler.ProxyGroup or RoutingCompiler.DefaultGroup;
-        string Normalize(string type, string payload, string proxy) => type.Replace("-", "").ToUpperInvariant() + "|" + payload + "|" + proxy;
+        string Normalize(string type, string payload, string proxy)
+        {
+            var normalized = type.Replace("-", "").ToUpperInvariant();
+            // Mihomo reports both IPv4 and IPv6 CIDR rules as IPCIDR in /rules.
+            // Only accept the alias for a valid IPv6 network; keep payload and target exact.
+            if (normalized == "IPCIDR6" && payload.Split('/') is [var address, var prefix]
+                && System.Net.IPAddress.TryParse(address, out var ip)
+                && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                && int.TryParse(prefix, out var bits) && bits >= 0 && bits <= 128)
+                normalized = "IPCIDR";
+            if (normalized == "GEOIP" && payload.Length == 2 && payload.All(char.IsAsciiLetter))
+                payload = payload.ToUpperInvariant();
+            return normalized + "|" + payload + "|" + proxy;
+        }
         var map = RoutingCompiler.ReadYaml(yaml);
         var source = ((YamlSequenceNode)map.Children[new YamlScalarNode("rules")]).Children.Select(node =>
         {

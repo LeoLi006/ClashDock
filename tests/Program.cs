@@ -21,8 +21,9 @@ internal static class Checks
     }
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if (args.Contains("--subscription-only")) { SubscriptionChecks.Run(Check); return; }
         var draft = new RoutingSettings
         {
             Proxy = "代理组",
