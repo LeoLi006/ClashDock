@@ -5,11 +5,12 @@ using System.Text.Json;
 namespace ClashDock;
 
 /// <summary>Mihomo(Clash Verge) 外部控制器 REST API 的轻量客户端。</summary>
-public sealed class MihomoClient
+public sealed partial class MihomoClient : IDisposable
 {
     private readonly HttpClient _http;
     private readonly string _base;
     private readonly string _secret;
+    public void Dispose() => _http.Dispose();
     public bool IsLocal { get; }
 
     public MihomoClient(string host, int port, string secret, HttpMessageHandler? handler = null)

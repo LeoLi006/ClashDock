@@ -4,26 +4,17 @@ namespace ClashDock;
 
 /// <summary>
 /// 工具配置。首次运行会在程序目录生成 settings.json，
-/// 可在其中修改控制器地址、密钥、是否开机强制规则模式等。
+/// 可在高级设置修改本机连接；旧场景和强制模式字段会被忽略。
 /// </summary>
 public sealed class Settings
 {
+    public RoutingSettings? ResumeRouting { get; set; }
+    public bool Paused { get; set; }
     public bool UseManualController { get; set; }
     public string Host { get; set; } = "127.0.0.1";
     public int Port { get; set; } = 9097;
     public string Secret { get; set; } = "set-your-secret";
 
-    /// <summary>旧配置兼容字段；当前版本不在启动时改网络模式，始终需用户确认。</summary>
-    public bool ForceRuleModeOnStart { get; set; } = true;
-
-    /// <summary>弹出面板的全局热键，格式如 Ctrl+Alt+Shift+F10。</summary>
-    public string Hotkey { get; set; } = "Ctrl+Alt+Shift+F10";
-
-    /// <summary>
-    /// 场景预设：托盘菜单/面板中一键套用的组合（切模式 + 批量切多个策略组）。
-    /// 可直接编辑 settings.json 增删改，或使用「保存当前状态为场景」生成。
-    /// </summary>
-    public List<Preset> Presets { get; set; } = new();
     public RoutingSettings Routing { get; set; } = new();
 
     private static string FilePath =>
@@ -39,16 +30,11 @@ public sealed class Settings
                 var loaded = JsonSerializer.Deserialize<Settings>(text);
                 if (loaded is not null)
                 {
-                    loaded.Presets ??= new();
+
                     loaded.Routing ??= new();
                     loaded.Routing.Applications ??= new();
                     loaded.Routing.Websites ??= new();
                     loaded.Routing.AppliedRules ??= new();
-                    if (loaded.Presets.Count == 0)
-                    {
-                        loaded.Presets = Preset.Defaults();
-                        loaded.Save();
-                    }
                     return loaded;
                 }
             }
@@ -58,24 +44,11 @@ public sealed class Settings
             // 配置损坏时回退默认值
         }
 
-        var settings = new Settings { Presets = Preset.Defaults() };
-        settings.Save();
+        var settings = new Settings();
         return settings;
     }
 
-    public void Save()
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(
-                this, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(FilePath, json);
-        }
-        catch
-        {
-            // 忽略写入失败（例如只读目录）
-        }
-    }
+    public void Save() { try { SaveChecked(); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
 
     public void SaveChecked()
     {

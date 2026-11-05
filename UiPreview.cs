@@ -11,13 +11,13 @@ internal static class UiPreview
         form.Show(); Application.DoEvents();
         form.MergeApps([new("Visual Studio Code", @"C:\Apps\Code.exe", "示例应用"), new("微信", @"C:\Apps\WeChat.exe", "示例应用"), new("网易云音乐", @"C:\Apps\CloudMusic.exe", "示例应用")]);
         var checks = new Dictionary<string, bool>();
-        var apply = Descendants(form).OfType<Button>().Single(b => b.Text == "保存并应用");
+        var apply = Descendants(form).OfType<Button>().Single(b => b.Text == "重试应用");
         foreach (var size in new[] { new Size(1020, 760), new Size(920, 720), new Size(1280, 850) })
         {
             form.ClientSize = size; Application.DoEvents();
             var buttonRect = apply.RectangleToScreen(apply.ClientRectangle);
-            var tun = Descendants(form).OfType<PillButton>().Single(b => b.Text.Contains("TUN"));
-            checks[$"tun_visible_{size.Width}"] = form.RectangleToScreen(form.ClientRectangle).Contains(tun.RectangleToScreen(tun.ClientRectangle));
+            var tun = Descendants(form).OfType<PillButton>().Single(b => b.Text == "目标状态");
+            checks[$"targets_visible_{size.Width}"] = form.RectangleToScreen(form.ClientRectangle).Contains(tun.RectangleToScreen(tun.ClientRectangle));
             checks[$"apply_visible_{size.Width}"] = form.RectangleToScreen(form.ClientRectangle).Contains(buttonRect);
             foreach (var section in new[] { "应用规则", "网站规则", "设置与说明" })
             {

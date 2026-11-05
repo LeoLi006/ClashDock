@@ -1,277 +1,54 @@
+using System.Runtime.InteropServices;
 namespace ClashDock;
-
-/// <summary>托盘主逻辑：状态刷新、模式切换、策略组一键切换、热键唤起。</summary>
 public sealed class TrayApp : ApplicationContext
 {
-    private readonly Settings _settings;
-    private readonly MihomoClient _client;
-    private readonly NotifyIcon _tray;
-    private readonly System.Windows.Forms.Timer _timer;
-    private readonly HotkeyWindow _hotkey;
-    private PanelForm? _panel;
-    private RoutingForm? _routingPanel;
-    private bool _busy;
-
-    public TrayApp()
+    readonly Settings settings;
+    readonly MihomoClient client;
+    readonly AutoRouting engine;
+    readonly NotifyIcon tray;
+    readonly Control dispatcher = new();
+    readonly System.Windows.Forms.Timer timer = new() { Interval = 12000 };
+    readonly HotkeyWindow hotkey = new();
+    RoutingForm? form;
+    bool checking, exiting;
+    public TrayApp(bool silent = false)
     {
-        _settings = Settings.Load();
-        ControllerDiscovery.Apply(_settings);
-        _client = new MihomoClient(_settings.Host, _settings.Port, _settings.Secret);
-
-        _tray = new NotifyIcon
-        {
-            Icon = SystemIcons.Application,
-            Visible = true,
-            Text = "ClashDock 启动中…"
-        };
-        _tray.DoubleClick += (_, _) => ShowRouting();
-        _tray.ContextMenuStrip = BuildMenu(null, null, false);
-
-        _hotkey = new HotkeyWindow();
-        _hotkey.HotkeyPressed += (_, _) => ShowRouting();
-
-        _timer = new System.Windows.Forms.Timer { Interval = 4000 };
-        _timer.Tick += async (_, _) => await RefreshAsync();
-        _timer.Start();
-
-        _ = InitAsync();
+        settings = Settings.Load(); ControllerDiscovery.Apply(settings);
+        client = new(settings.Host, settings.Port, settings.Secret); engine = new(client, settings);
+        dispatcher.CreateControl(); _ = dispatcher.Handle;
+        if (SynchronizationContext.Current == null) SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+        tray = new() { Icon = SystemIcons.Application, Text = "ClashDock", Visible = true };
+        tray.DoubleClick += (_, _) => Show(); hotkey.HotkeyPressed += (_, _) => Show();
+        engine.Changed += UpdateMenu; UpdateMenu();
+        timer.Tick += async (_, _) => { if (checking || exiting) return; checking = true; try { await engine.VerifyAsync(client); } finally { checking = false; } }; timer.Start();
+        if (!silent) Show();
+        _ = engine.VerifyAsync(client);
     }
-
-    private async Task InitAsync()
+    public void RequestOpen() { if (!dispatcher.IsDisposed) try { dispatcher.BeginInvoke((Action)Show); } catch (InvalidOperationException) { } }
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    void Show()
     {
-        await RefreshAsync();
+        if (exiting) return;
+        if (form == null || form.IsDisposed) form = new(client, settings, engine: engine);
+        form.Show(); if (form.WindowState == FormWindowState.Minimized) form.WindowState = FormWindowState.Normal;
+        ShowWindow(form.Handle, 9); form.BringToFront(); form.Activate(); SetForegroundWindow(form.Handle);
     }
-
-    private async Task RefreshAsync()
+    void UpdateMenu()
     {
-        if (_busy)
-            return;
-        _busy = true;
-        try
-        {
-            if (!await _client.PingAsync())
-            {
-                _tray.Text = "ClashDock：未连接到 Clash";
-                _tray.ContextMenuStrip = BuildMenu(null, null, false);
-                return;
-            }
-
-            var mode = await _client.GetModeAsync();
-            var groups = await _client.GetSelectorGroupsAsync();
-
-            _tray.Text = $"ClashDock  [{mode}]  组:{groups.Count}";
-            _tray.ContextMenuStrip = BuildMenu(mode, groups, true);
-        }
-        catch
-        {
-            _tray.Text = "ClashDock：读取失败";
-        }
-        finally
-        {
-            _busy = false;
-        }
+        var menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), ShowImageMargin = false, Font = Theme.Body };
+        menu.Items.Add("打开主界面", null, (_, _) => Show());
+        menu.Items.Add(engine.Paused ? "恢复分流" : "暂停分流", null, (_, _) => engine.TogglePause());
+        menu.Items.Add("退出（保留已生效规则）", null, async (_, _) => await ExitAsync());
+        var old = tray.ContextMenuStrip; tray.ContextMenuStrip = menu; old?.Dispose();
+        tray.Text = "ClashDock · " + engine.Status[..Math.Min(45, engine.Status.Length)].Replace("\n", " ");
     }
-
-    private ContextMenuStrip BuildMenu(
-        string? mode, List<ProxyGroup>? groups, bool connected)
+    async Task ExitAsync()
     {
-        var menu = new ContextMenuStrip
-        {
-            Renderer = new DarkMenuRenderer(),
-            ShowImageMargin = false,
-            BackColor = Theme.Card,
-            ForeColor = Theme.Text,
-            Font = Theme.Body
-        };
-
-        var header = new ToolStripMenuItem(
-            connected ? $"已连接  模式: {mode}" : "未连接到 Clash (检查控制器/密钥)")
-        {
-            Enabled = false
-        };
-        menu.Items.Add(header);
-        menu.Items.Add(new ToolStripSeparator());
-
-        // 模式切换
-        var modeMenu = new ToolStripMenuItem("运行模式");
-        foreach (var m in new[] { "rule", "global", "direct" })
-        {
-            var item = new ToolStripMenuItem(m)
-            {
-                Checked = string.Equals(mode, m, StringComparison.OrdinalIgnoreCase)
-            };
-            item.Click += async (_, _) => await SafeSetModeAsync(m);
-            modeMenu.DropDownItems.Add(item);
-        }
-        menu.Items.Add(modeMenu);
-
-        // 一键纠偏
-        var fix = new ToolStripMenuItem("强制切回规则模式(rule)");
-        fix.Click += async (_, _) => await SafeSetModeAsync("rule");
-        menu.Items.Add(fix);
-
-        // 场景预设：一键套用常用组合（切模式 + 批量切多个策略组）
-        if (connected && _settings.Presets.Count > 0)
-        {
-            var presetRoot = new ToolStripMenuItem("场景预设(一键套用)");
-            foreach (var p in _settings.Presets)
-            {
-                var captured = p;
-                var item = new ToolStripMenuItem(captured.Name);
-                item.Click += async (_, _) => await SafeApplyPresetAsync(captured);
-                presetRoot.DropDownItems.Add(item);
-            }
-            presetRoot.DropDownItems.Add(new ToolStripSeparator());
-            var save = new ToolStripMenuItem("保存当前状态为场景…");
-            save.Click += async (_, _) => await SaveCurrentAsPresetAsync();
-            presetRoot.DropDownItems.Add(save);
-            menu.Items.Add(presetRoot);
-        }
-
-        menu.Items.Add(new ToolStripSeparator());
-
-        // 策略组：每个组一个子菜单，点选即切换
-        if (groups is { Count: > 0 })
-        {
-            var groupsRoot = new ToolStripMenuItem("策略组(点选即切换)");
-            foreach (var g in groups)
-            {
-                var gItem = new ToolStripMenuItem($"{g.Name}  ⇒  {g.Now}");
-                foreach (var opt in g.Options)
-                {
-                    var oItem = new ToolStripMenuItem(opt)
-                    {
-                        Checked = string.Equals(opt, g.Now, StringComparison.Ordinal)
-                    };
-                    var capturedGroup = g.Name;
-                    var capturedOpt = opt;
-                    oItem.Click += async (_, _) =>
-                        await SafeSelectAsync(capturedGroup, capturedOpt);
-                    gItem.DropDownItems.Add(oItem);
-                }
-                groupsRoot.DropDownItems.Add(gItem);
-            }
-            menu.Items.Add(groupsRoot);
-        }
-
-        menu.Items.Add(new ToolStripSeparator());
-
-        var open = new ToolStripMenuItem($"应用 / 网站分流  ({_settings.Hotkey})");
-        open.Click += (_, _) => ShowRouting();
-        menu.Items.Add(open);
-
-        var routing = new ToolStripMenuItem("高级面板（模式 / 场景 / 策略组）…");
-        routing.Click += (_, _) => ShowPanel();
-        menu.Items.Add(routing);
-
-        var refresh = new ToolStripMenuItem("立即刷新");
-        refresh.Click += async (_, _) => await RefreshAsync();
-        menu.Items.Add(refresh);
-
-        menu.Items.Add(new ToolStripSeparator());
-
-        var exit = new ToolStripMenuItem("退出");
-        exit.Click += (_, _) => ExitApp();
-        menu.Items.Add(exit);
-
-        return menu;
-    }
-
-    private async Task SafeSetModeAsync(string mode)
-    {
-        if (!NetworkConfirmation.Ask(null, $"将当前运行模式切换为 {mode}；可能改变现有流量路由。")) return;
-        try
-        {
-            await _client.SetModeAsync(mode);
-        }
-        catch
-        {
-            // 忽略
-        }
-        await RefreshAsync();
-    }
-
-    private async Task SafeSelectAsync(string group, string option)
-    {
-        if (!NetworkConfirmation.Ask(null, $"策略组 {group} 将切换为 {option}。")) return;
-        try
-        {
-            await _client.SelectAsync(group, option);
-        }
-        catch
-        {
-            // 忽略
-        }
-        await RefreshAsync();
-    }
-
-    private async Task SafeApplyPresetAsync(Preset preset)
-    {
-        try { if (!NetworkConfirmation.Ask(null, await NetworkConfirmation.PresetPreview(_client, preset))) return; } catch { return; }
-        try
-        {
-            await PresetEngine.ApplyAsync(_client, preset);
-        }
-        catch
-        {
-            // 忽略单次失败
-        }
-        await RefreshAsync();
-    }
-
-    private async Task SaveCurrentAsPresetAsync()
-    {
-        using var dlg = new NameDialog();
-        if (dlg.ShowDialog() != DialogResult.OK || dlg.Result.Length == 0)
-            return;
-        try
-        {
-            var p = await PresetEngine.CaptureAsync(_client, dlg.Result);
-            _settings.Presets.Add(p);
-            _settings.Save();
-        }
-        catch
-        {
-            // 忽略
-        }
-        await RefreshAsync();
-    }
-
-    private void ShowPanel()
-    {
-        if (_panel is null || _panel.IsDisposed)
-        {
-            _panel = new PanelForm(_client, _settings);
-            _panel.FormClosed += (_, _) => _panel = null;
-        }
-        _panel.Show();
-        _panel.BringToFront();
-        _panel.Activate();
-    }
-
-    private void ShowRouting()
-    {
-        if (_routingPanel is null || _routingPanel.IsDisposed)
-        {
-            _routingPanel = new RoutingForm(_client, _settings);
-            _routingPanel.FormClosed += (_, _) => _routingPanel = null;
-        }
-        _routingPanel.Show();
-        if (_routingPanel.WindowState == FormWindowState.Minimized)
-            _routingPanel.WindowState = FormWindowState.Normal;
-        _routingPanel.BringToFront();
-        _routingPanel.Activate();
-    }
-
-    private void ExitApp()
-    {
-        _routingPanel?.Close();
-        if (_routingPanel is not null && !_routingPanel.IsDisposed) return;
-        _timer.Stop();
-        _tray.Visible = false;
-        _tray.Dispose();
-        _hotkey.Dispose();
-        _panel?.Close();
-        ExitThread();
+        if (exiting) return; exiting = true;
+        try { form?.CommitPendingEdit(); await engine.FlushAsync(); }
+        catch { exiting = false; MessageBox.Show("最后的修改尚未保存，暂未退出。请在主界面重试。"); return; }
+        timer.Stop(); timer.Dispose(); engine.Stop(); form?.Dispose(); hotkey.Dispose();
+        tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); client.Dispose(); dispatcher.Dispose(); ExitThread();
     }
 }

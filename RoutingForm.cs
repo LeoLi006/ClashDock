@@ -1,4 +1,3 @@
-using System.Diagnostics;
 
 namespace ClashDock;
 
@@ -6,42 +5,45 @@ namespace ClashDock;
 public sealed class RoutingForm : Form
 {
     private readonly MihomoClient _client;
-    private readonly RoutingService _service;
+    private readonly AutoRouting _engine;
+    private readonly bool _ownsEngine;
     private readonly Settings _settings;
     private readonly DataGridView _apps = Grid();
     private readonly DataGridView _sites = Grid();
     private readonly ModernSelect _proxy = new() { Width = 320 };
     private readonly TextBox _directory = new() { Width = 420 };
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(850, 0), Padding = new Padding(0, 6, 0, 0) };
-    private readonly PillButton _apply = new() { Text = "保存并应用", AutoSize = true };
+    private readonly PillButton _apply = new() { Text = "重试应用", AutoSize = true };
     private readonly CancellationTokenSource _catalogLife = new();
-    private readonly HashSet<string> _configuredApps = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string>? _availableTargets;
     private readonly Dictionary<string, Image> _appIcons = new(StringComparer.OrdinalIgnoreCase);
     private readonly TextBox _appSearch = new();
     private readonly ModernSelect _defaultBehavior = new();
-    private readonly PillButton _tunButton = new() { Text = "TUN · 刷新", Outline = true, AutoSize = false };
+    private readonly PillButton _tunButton = new() { Text = "目标状态", Outline = true, AutoSize = false };
     private readonly Label _networkStatus = new() { Dock = DockStyle.Fill, ForeColor = Theme.Warn, Font = Theme.Small, AutoEllipsis = true };
     private NetworkSnapshot? _network;
     private bool _rulesVerified;
     private readonly System.Windows.Forms.Timer _networkTimer = new() { Interval = 8000 };
     private Task? _networkRefreshTask;
     private int _networkGeneration;
-    private bool _changingNetwork;
+
     private bool _preview;
     private bool _catalogDisposed;
     private bool _scanBusy;
     private bool _dirty;
     private bool _loading = true;
-    private bool _applying;
 
-    public RoutingForm(MihomoClient client, Settings settings, bool preview = false)
+
+    public RoutingForm(MihomoClient client, Settings settings, bool preview = false, AutoRouting? engine = null)
     {
         SuspendLayout();
         _preview = preview;
         _client = client;
         _settings = settings;
-        _configuredApps.UnionWith(settings.Routing.Applications.Select(x => x.Target));
-        _service = new RoutingService(client, settings);
+
+        _engine = engine ?? new AutoRouting(client, settings, preview ? Path.Combine(Path.GetTempPath(), Guid.NewGuid()+".json") : null); _ownsEngine = engine == null;
+        settings = new Settings { Routing = AutoRouting.Copy(_engine.Desired) };
+        _engine.Changed += EngineChanged;
         Text = "ClashDock · 分流工作台";
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
         float dpiScale = DeviceDpi / 96f;
@@ -68,7 +70,7 @@ public sealed class RoutingForm : Form
         header.Controls.Add(caption);
         header.Resize += (_, _) => caption.Width = Math.Max(0, header.Width - captionLeft - 220);
         _tunButton.Size = new Size(170, Math.Max(40, TextRenderer.MeasureText("Ag", Theme.Body).Height + 14));
-        _tunButton.Click += async (_, _) => await ChangeTunAsync();
+        _tunButton.Click += (_, _) => { if (!_preview) new TargetForm(_client).Show(this); };
         header.Controls.Add(_tunButton); header.Resize += (_, _) => _tunButton.Location = new(Math.Max(0, header.Width - _tunButton.Width), 0);
         root.Controls.Add(header, 0, 0);
 
@@ -109,7 +111,7 @@ public sealed class RoutingForm : Form
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 14, 0, 0) };
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 148));
         _status.AutoSize = false; _status.MaximumSize = Size.Empty; _status.Dock = DockStyle.Fill; _status.Padding = new Padding(0, 4, 16, 0); _status.Font = Theme.Small; _status.ForeColor = Theme.SubText;
-        _status.Text = "连接就绪后，添加应用或网站，选择路由方式并保存。"; _status.AutoEllipsis = true;
+        _status.Text = "连接就绪后，添加应用或网站，选择路由方式后自动保存并应用。"; _status.AutoEllipsis = true;
         footer.Controls.Add(_status, 0, 0);
         _apply.Accent = true; _apply.SurfaceColor = Theme.Bg; _apply.AutoSize = false; _apply.Size = new Size(148, Math.Max(42, TextRenderer.MeasureText("Ag", Theme.Body).Height + 18)); _apply.Anchor = AnchorStyles.Right | AnchorStyles.Top; _apply.Margin = Padding.Empty;
         _apply.Click += async (_, _) => await ApplyAsync(); footer.Controls.Add(_apply, 1, 0); root.Controls.Add(footer, 0, 4);
@@ -129,17 +131,13 @@ public sealed class RoutingForm : Form
         _directory.TextChanged += (_, _) => Dirty();
         _proxy.SelectedIndexChanged += (_, _) => Dirty();
         Load += async (_, _) => { if (!preview) { _ = DiscoverAppsAsync(); await LoadTargetsAsync(); } else { _proxy.Items.Add("示例代理策略组"); _proxy.SelectedIndex = 0; _status.Text = "界面预览 · 隔离示例，不连接控制器或修改代理。"; } if (preview) UpdateNetworkLabel(); _loading = false; };
-        _networkTimer.Tick += async (_, _) => { if (!_applying && !_changingNetwork && Visible) await RefreshNetworkAsync(); };
+        _networkTimer.Tick += async (_, _) => { if (!_engine.Busy && Visible) await RefreshNetworkAsync(); };
         VisibleChanged += (_, _) => { if (!_preview && !_catalogDisposed) { if (Visible) _networkTimer.Start(); else _networkTimer.Stop(); } };
         ResumeLayout(true);
-        FormClosing += (_, e) =>
-        {
-            if (_applying || _changingNetwork) { e.Cancel = true; return; }
-            _apps.EndEdit(); _sites.EndEdit();
-            if (_dirty && MessageBox.Show(this, "还有未应用的修改，关闭会丢弃这些修改。仍要关闭？", "未应用的修改", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                e.Cancel = true;
-        };
+        FormClosing += (_, e) => { CommitPendingEdit(); };
     }
+    public void CommitPendingEdit() { _apps.EndEdit(); _sites.EndEdit(); }
+    private void EngineChanged() { if (IsDisposed) return; _status.Text = _engine.Status + (_availableTargets != null && _proxy.SelectedItem is string selected && selected.Length > 0 && !_availableTargets.Contains(selected) ? "\n所选目标已失效，请在上方重新选择代理目标修复。" : ""); _status.ForeColor = _engine.Status.Contains("失败") || _engine.Status.Contains("覆盖") ? Theme.Err : Theme.SubText; _apps.Invalidate(); }
 
     private Panel Page(string title, DataGridView grid, bool app)
     {
@@ -174,6 +172,9 @@ public sealed class RoutingForm : Form
         var remove = new PillButton { Text = app ? "恢复默认" : "移除", Outline = true, SurfaceColor = Theme.Card };
         remove.Click += (_, _) => { foreach (var row in grid.SelectedRows.Cast<DataGridViewRow>().ToArray()) if (!row.IsNewRow) { if (app) row.Cells[1].Value = "默认"; else grid.Rows.Remove(row); } };
         bar.Controls.Add(remove);
+        var diagnose = new PillButton { Text = "连接诊断", Outline = true, SurfaceColor = Theme.Card };
+        diagnose.Click += async (_, _) => { if (_preview || grid.SelectedRows.Count == 0) return; try { string target = grid.SelectedRows[0].Cells[0].Value?.ToString() ?? ""; NetworkConfirmation.ShowDetails(this, await _client.DiagnoseAsync(target, app)); } catch { Error("控制器连接失败，无法读取连接诊断。"); } };
+        diagnose.Dock = DockStyle.Right; heading.Controls.Add(diagnose);
         page.Controls.Add(grid);
         page.Controls.Add(bar); page.Controls.Add(heading);
         if (app)
@@ -188,10 +189,21 @@ public sealed class RoutingForm : Form
             var common = new PillButton { Text = "常用站点", Outline = true, SurfaceColor = Theme.Card };
             var menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Body };
             foreach (var (name, domain) in new[] { ("GitHub", "github.com"), ("Google", "google.com"), ("YouTube", "youtube.com"), ("ChatGPT", "chatgpt.com"), ("Gemini", "gemini.google.com"), ("哔哩哔哩", "bilibili.com") })
-                menu.Items.Add(name, null, (_, _) => Add(grid, domain));
+                menu.Items.Add(name, null, (_, _) => {
+                    using var dialog = new TextEntryDialog("查看并编辑网站模板", "用逗号分隔域名；资源域名可能变化，请按实际连接补充");
+                    dialog.SetValue(domain == "bilibili.com" ? "bilibili.com,bilivideo.com,hdslb.com,biliapi.net,biliapi.com" : domain);
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    try { var domains = dialog.Value.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(RoutingCompiler.Domain).Distinct().ToArray(); bool loading = _loading; _loading = true; try { foreach (var d in domains) if (!grid.Rows.Cast<DataGridViewRow>().Any(r => r.Cells[0].Value?.ToString() == d)) grid.Rows.Add(d, "自动"); } finally { _loading = loading; } Dirty(); } catch (Exception e) { Error(e.Message); }
+                });
             common.Click += (_, _) => menu.Show(common, new Point(0, common.Height));
             common.Disposed += (_, _) => menu.Dispose(); bar.Controls.Add(common);
         }
+        if (!app) grid.CellDoubleClick += (_, e) => {
+            if (e.RowIndex < 0 || e.ColumnIndex != 0) return;
+            var cell = grid.Rows[e.RowIndex].Cells[0]; using var dialog = new TextEntryDialog("编辑域名", "域名及子域名共用设置；双击网站名称可编辑"); dialog.SetValue(cell.Value?.ToString() ?? "");
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            try { string domain = RoutingCompiler.Domain(dialog.Value); if (grid.Rows.Cast<DataGridViewRow>().Any(r => r.Index != e.RowIndex && string.Equals(r.Cells[0].Value?.ToString(), domain, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("域名已存在。"); cell.Value = domain; } catch (Exception error) { Error(error.Message); }
+        };
         grid.CellPainting += (_, e) => PaintRule(grid, e, app);
         grid.Paint += (_, e) => { if (grid.Rows.Count == 0) TextRenderer.DrawText(e.Graphics, app ? "正在发现应用或没有匹配结果\n可点击「扫描应用」重新扫描" : "还没有网站规则\n点击「添加网站」开始设置", Theme.Body, new Rectangle(12, 100, Math.Max(1, grid.Width - 24), 70), Theme.SubText, TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak); };
         return page;
@@ -207,17 +219,22 @@ public sealed class RoutingForm : Form
         _defaultBehavior.Width = 420; _defaultBehavior.Margin = new Padding(0, 0, 0, 14);
         _defaultBehavior.SelectedIndexChanged += (_, _) => { Dirty(); _apps.Invalidate(); UpdateNetworkLabel(); };
         content.Controls.Add(_defaultBehavior);
-        content.Controls.Add(new Label { Text = "自动＝明确沿用订阅；默认＝未单设。修改需保存并确认。", AutoSize = true, ForeColor = Theme.SubText, Font = Theme.Small, Margin = new Padding(0, 0, 0, 24) });
+        content.Controls.Add(new Label { Text = "自动＝明确沿用订阅；默认＝未单设。修改将自动保存并应用。", AutoSize = true, ForeColor = Theme.SubText, Font = Theme.Small, Margin = new Padding(0, 0, 0, 24) });
         content.Controls.Add(new Label { Text = "Verge 配置目录", Font = Theme.Sub, AutoSize = true, Margin = new Padding(0, 0, 0, 8) });
         _directory.Text = settings.Routing.VergeDirectory; UiStyle.Input(_directory); _directory.PlaceholderText = "留空则自动识别配置目录";
         content.Controls.Add(_directory);
         var browse = new PillButton { Text = "选择文件夹", Outline = true, SurfaceColor = Theme.Card, Margin = new Padding(0, 12, 0, 22) };
         browse.Click += (_, _) => { using var dlg = new FolderBrowserDialog { InitialDirectory = _directory.Text }; if (dlg.ShowDialog(this) == DialogResult.OK) _directory.Text = dlg.SelectedPath; };
         content.Controls.Add(browse);
-        var help = new Label { AutoSize = true, MaximumSize = new Size(600, 0), Font = Theme.Small, ForeColor = Theme.SubText, Text = "三种路由方式\n\n默认   采用未单设应用的默认行为。\n自动   明确沿用订阅规则（不受默认直连影响）。\n直连   不经过代理节点。\n代理   使用上方选择的节点或策略组。\n\n使用范围\n\n仅处理已进入 Clash 的流量。应用需遵循系统代理，或已配置 Clash 代理；这里不会强制接管软件或管理虚拟网卡。\n\n网站按域名及子域名匹配，网站规则优先于应用规则。网页引用的其他域名需另行设置。\n\n保存时会备份并更新 Verge 全局扩展脚本，切换到规则模式。现有长连接可能需要重连。将条目设为自动或移除后再次保存，可撤销对应规则。" };
+        var help = new Label { AutoSize = true, MaximumSize = new Size(600, 0), Font = Theme.Small, ForeColor = Theme.SubText, Text = "三种路由方式\n\n默认   采用未单设应用的默认行为。\n自动   明确沿用订阅规则（不受默认直连影响）。\n直连   不经过代理节点。\n代理   使用上方选择的节点或策略组。\n\n使用范围\n\n仅处理已进入 Clash 的流量。应用需遵循系统代理，或已配置 Clash 代理；这里不会强制接管软件或管理虚拟网卡。\n\n网站按域名及子域名匹配，网站规则优先于应用规则。网页引用的其他域名需另行设置。\n\n修改后自动备份并更新 Verge 全局扩展脚本，切换到规则模式。现有长连接可能需要重连。将条目设为自动或移除后即可撤销对应规则。" };
         content.Controls.Add(help);
         var advanced = new PillButton { Text = "高级连接配置…", Outline = true, SurfaceColor = Theme.Card, Margin = new Padding(0, 20, 0, 12) };
         advanced.Click += (_, _) => { if (!_preview) { AdvancedConnection.Show(this, _settings); _status.Text = "连接配置如有更改，重启 ClashDock 后使用；未更改网络规则。"; } };
+        foreach (var label in new[] { "撤销上次修改", "移除全部托管规则" }) {
+            var maintenance = new PillButton { Text = label, Outline = true, SurfaceColor = Theme.Card };
+            maintenance.Click += (_, _) => { if (_preview) return; if (!NetworkConfirmation.Ask(this, label + "：仅修改 ClashDock 管理的规则，保留订阅与用户脚本。")) return; try { if (label.StartsWith("撤销")) _engine.Undo(); else _engine.RemoveAll(); Close(); } catch (Exception e) { Error(e.Message); } };
+            content.Controls.Add(maintenance);
+        }
         content.Controls.Add(advanced); page.Controls.Add(content);
         page.Resize += (_, _) => { int width = Math.Max(150, page.ClientSize.Width - page.Padding.Horizontal - 20); _directory.Width = width; _defaultBehavior.Width = width; help.MaximumSize = new Size(width, 0); };
         return page;
@@ -302,7 +319,7 @@ public sealed class RoutingForm : Form
             var found = await ApplicationCatalog.ScanAsync(_catalogLife.Token);
             if (IsDisposed || _catalogLife.IsCancellationRequested) return;
             MergeApps(found);
-            if (!_dirty && _status.ForeColor != Theme.Err) { _status.Text = $"发现 {found.Length} 个应用。默认沿用上方默认行为；选择代理／直连／自动后保存。"; _status.ForeColor = Theme.SubText; }
+            if (!_dirty && _status.ForeColor != Theme.Err && !_engine.Status.Contains("待重试")) { _status.Text = $"发现 {found.Length} 个应用。默认沿用上方默认行为；选择代理／直连／自动后自动应用。"; _status.ForeColor = Theme.SubText; }
         }
         catch (OperationCanceledException) { }
         catch { if (!IsDisposed) Error("部分应用未能识别。可重新扫描，或使用手动补充；现有规则保留。"); }
@@ -339,17 +356,15 @@ public sealed class RoutingForm : Form
     private string ApplicationState(string path, string mode)
     {
         var saved = _settings.Routing.Applications.FirstOrDefault(x => x.Target.Equals(path, StringComparison.OrdinalIgnoreCase))?.Mode ?? "默认";
-        if (mode != saved || (mode == "默认" && _defaultBehavior.SelectedItem != _settings.Routing.DefaultBehavior) || (mode == "代理" && _proxy.SelectedItem != _settings.Routing.Proxy)) return "草稿 · 保存并确认后生效";
+        if (_engine.Busy || mode != saved || (mode == "默认" && _defaultBehavior.SelectedItem != _settings.Routing.DefaultBehavior) || (mode == "代理" && _proxy.SelectedItem != _settings.Routing.Proxy)) return "修改待确认 · 查看下方应用状态";
         string label = mode == "默认" ? (_settings.Routing.DefaultBehavior == "沿用订阅规则" ? "默认沿用订阅" : "默认直连") : mode == "自动" ? "明确沿用订阅" : mode;
-        return label + (!_rulesVerified || _network?.Mode != "rule" ? " · 内核规则待核验" : _network.Enabled && NetworkSnapshot.AdapterUp(_network) ? " · 规则已加载，需重连验证" : " · TUN未确认，部分应用可能无效");
+        return label + (_rulesVerified && _network?.Mode == "rule" ? " · 内核规则已加载" : " · 待核验");
     }
     private void UpdateNetworkLabel()
     {
         if (IsDisposed) return;
-        _networkStatus.Text = (_network?.Describe(_network != null && NetworkSnapshot.AdapterUp(_network)) ?? "TUN／运行模式尚未读取；不自动更改网络") + "\n默认行为（草稿）：" + (_defaultBehavior.SelectedItem ?? "沿用订阅规则");
-        _networkStatus.ForeColor = _network?.Enabled == true && NetworkSnapshot.AdapterUp(_network) && _network.Mode == "rule" ? Theme.Ok : Theme.Warn;
-        _tunButton.Text = _network?.Enabled == true ? "关闭 TUN" : "开启 TUN";
-        _apps.Invalidate();
+        _networkStatus.Text = "仅处理进入 Clash 的流量：应用需遵循系统代理或配置 Clash 代理；不会强制接管软件。\n网站优先于应用，同域名标签页共用设置；退出程序保留规则，暂停才撤下规则。";
+        _networkStatus.ForeColor = Theme.SubText; _apps.Invalidate();
     }
     private Task RefreshNetworkAsync(bool force = false)
     {
@@ -368,86 +383,34 @@ public sealed class RoutingForm : Form
         catch { if (IsDisposed || generation != _networkGeneration) return; _network = null; _rulesVerified = false; }
         UpdateNetworkLabel();
     }
-    private async Task ChangeTunAsync()
-    {
-        if (_preview || _changingNetwork || _applying) return;
-        _networkGeneration++;
-        _changingNetwork = true; _tunButton.Enabled = _apply.Enabled = false;
-        try
-        {
-            var current = await _client.GetNetworkAsync(); bool enabled = !current.Enabled;
-            string detail = enabled
-                ? $"当前模式 {current.Mode}；将开启 TUN、自动路由并切换为规则模式。\n网卡：{(current.Device.Length > 0 ? current.Device : "ClashDock")}。保留已有 DNS、协议栈及其他 TUN 设置。\n可能影响系统路由和现有连接；需要 Verge 服务模式／足够权限。不会保存应用草稿，失败尝试恢复原状态。"
-                : "将关闭当前 TUN 接管，规则和未保存草稿不变；不走系统代理的应用可能改为绕过 Clash。";
-            if (!NetworkConfirmation.Ask(this, detail)) return;
-            _status.Text = "正在请求内核并核验 TUN 状态…";
-            _status.Text = await new TunControl(_client).SetAsync(enabled); _status.ForeColor = Theme.Ok;
-        }
-        catch (Exception error) { Error(error.Message); }
-        finally { if (!IsDisposed) { await RefreshNetworkAsync(true); _changingNetwork = false; _tunButton.Enabled = _apply.Enabled = true; } }
-    }
-
+    private RoutingSettings Draft() => new() { VergeDirectory = _directory.Text.Trim(), Proxy = _proxy.SelectedItem ?? "", Applications = Entries(_apps), Websites = Entries(_sites), DefaultBehavior = _defaultBehavior.SelectedItem ?? "沿用订阅规则" };
     private void Dirty()
     {
-        if (_loading) return;
+        if (_loading || _preview || _catalogDisposed) return;
         _dirty = true;
-        _status.ForeColor = Theme.Warn;
-        _status.Text = "有未应用的修改。点击「保存并应用」后生效。已有连接可能需要重新打开应用或刷新网页。";
+        try { _engine.Update(Draft()); } catch (Exception e) { Error(e.Message); }
     }
 
     private async Task LoadTargetsAsync()
     {
-        var selected = _proxy.SelectedItem?.ToString() ?? _settings.Routing.Proxy;
+        var selected = _proxy.SelectedItem?.ToString() ?? _engine.Desired.Proxy;
         try
         {
             var targets = await _client.GetProxyNamesAsync();
+            if (IsDisposed) return;
+            selected = _proxy.SelectedItem ?? _engine.Desired.Proxy;
+            _availableTargets = targets.ToHashSet(StringComparer.Ordinal);
             var wasLoading = _loading;
             _loading = true;
-            try { _proxy.SetItems(targets, targets.Contains(selected) ? selected : targets.FirstOrDefault()); }
+            try { if (selected.Length > 0 && !targets.Contains(selected)) { targets.Insert(0, selected); Error("所选代理目标已失效，请在上方重新选择目标修复。"); } _proxy.SetItems(targets, selected.Length > 0 ? selected : targets.FirstOrDefault()); }
             finally { _loading = wasLoading; }
             await RefreshNetworkAsync();
-            if (!_dirty) { _status.Text = "已连接。应用会自动列出；选择路由方式后保存即可。"; _status.ForeColor = Theme.Ok; }
+            if (!_dirty) EngineChanged();
         }
-        catch { _network = null; _rulesVerified = false; UpdateNetworkLabel(); Error("未连接到 Clash。请先启动 Verge 并启用外部控制器；工具会自动读取本机连接配置。便携版可在设置中选择配置文件夹。"); }
+        catch { if (IsDisposed) return; _network = null; _rulesVerified = false; UpdateNetworkLabel(); Error("未连接到 Clash。请先启动 Verge 并启用外部控制器；工具会自动读取本机连接配置。便携版可在设置中选择配置文件夹。"); }
     }
 
-    private async Task ApplyAsync()
-    {
-        if (_applying || _changingNetwork || _preview) return;
-        _apps.EndEdit(); _sites.EndEdit();
-        var draft = new RoutingSettings
-        {
-            VergeDirectory = _directory.Text.Trim(), Proxy = _proxy.SelectedItem?.ToString() ?? "",
-            Applications = Entries(_apps), Websites = Entries(_sites), DefaultBehavior = _defaultBehavior.SelectedItem ?? "沿用订阅规则"
-        };
-        try
-        {
-            RoutingCompiler.Rules(draft);
-            var current = await _client.GetNetworkAsync();
-            if (!NetworkConfirmation.Ask(this, NetworkConfirmation.Preview(_settings.Routing, draft, current))) return;
-        }
-        catch (Exception error) { Error(error.Message); return; }
-        _networkGeneration++;
-        _applying = true; _apply.Enabled = false;
-        // 禁用整个编辑区，避免等待期间的修改被误标为已应用。
-        foreach (Control control in Controls) if (control != _status) control.Enabled = false;
-        _status.Text = "正在备份全局脚本并应用分流设置…";
-        try
-        {
-            await _service.ApplyAsync(draft);
-            _dirty = false;
-            _status.Text = "规则模式与托管规则已被内核确认；现有连接需重连，尚未实测每个应用出口。";
-            _status.ForeColor = Theme.Ok;
-        }
-        catch (Exception ex) { Error(ex.Message); }
-        finally
-        {
-            await RefreshNetworkAsync(true);
-            _applying = false;
-            foreach (Control control in Controls) control.Enabled = true;
-            _apply.Enabled = true;
-        }
-    }
+    private Task ApplyAsync() { if (!_preview) { CommitPendingEdit(); _engine.Retry(); } return Task.CompletedTask; }
 
     private List<RouteEntry> Entries(DataGridView grid) => grid.Rows.Cast<DataGridViewRow>()
         .Where(r => grid != _apps || r.Cells[1].Value?.ToString() != "默认")
@@ -457,6 +420,7 @@ public sealed class RoutingForm : Form
     {
         if (disposing && !_catalogDisposed)
         {
+            _engine.Changed -= EngineChanged; if (_ownsEngine) _engine.Stop();
             _catalogDisposed = true; _networkGeneration++; _networkTimer.Stop(); _networkTimer.Dispose(); _catalogLife.Cancel(); _catalogLife.Dispose();
             foreach (var icon in _appIcons.Values) icon.Dispose(); _appIcons.Clear();
         }
@@ -470,6 +434,7 @@ internal sealed class TextEntryDialog : Form
 {
     private readonly TextBox _input = new() { Dock = DockStyle.Top };
     public string Value => _input.Text.Trim();
+    public void SetValue(string text) => _input.Text = text;
     public TextEntryDialog(string title, string hint)
     {
         Text = title; ClientSize = new Size(560, 190); Padding = new Padding(24);
@@ -479,36 +444,5 @@ internal sealed class TextEntryDialog : Form
         var label = new Label { Text = hint, Dock = DockStyle.Top, Height = 34 };
         var ok = new PillButton { Text = "添加网站", Accent = true, DialogResult = DialogResult.OK, Dock = DockStyle.Bottom, Height = 40 };
         Controls.Add(_input); Controls.Add(label); Controls.Add(ok); AcceptButton = ok;
-    }
-}
-
-internal sealed class ApplicationPicker : Form
-{
-    private readonly ListBox _list = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
-    public string SelectedPath => (_list.SelectedItem as AppItem)?.Path ?? "";
-    private sealed record AppItem(string Name, string Path) { public override string ToString() => $"{Name}  —  {Path}"; }
-    public ApplicationPicker()
-    {
-        UiStyle.Window(this); _list.BackColor = Theme.Card; _list.ForeColor = Theme.Text; _list.BorderStyle = BorderStyle.None; _list.ItemHeight = 32;
-        Text = "选择运行中的应用"; ClientSize = new Size(780, 460); Font = Theme.Body; StartPosition = FormStartPosition.CenterParent;
-        var filter = new TextBox { Dock = DockStyle.Top, PlaceholderText = "搜索应用名或路径" };
-        UiStyle.Input(filter);
-        var items = new List<AppItem>();
-        foreach (var process in Process.GetProcesses())
-            using (process)
-                try
-                {
-                    var path = process.MainModule?.FileName;
-                    if (!string.IsNullOrEmpty(path) && path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                        items.Add(new AppItem(process.ProcessName, path));
-                }
-                catch { /* 系统或其他用户的进程可能无法读取路径。 */ }
-        items = items.DistinctBy(i => i.Path, StringComparer.OrdinalIgnoreCase).OrderBy(i => i.Name).ToList();
-        void Fill() { _list.Items.Clear(); _list.Items.AddRange(items.Where(i => i.ToString().Contains(filter.Text, StringComparison.OrdinalIgnoreCase)).Cast<object>().ToArray()); }
-        filter.TextChanged += (_, _) => Fill();
-        var ok = new PillButton { Text = "添加选中应用", Accent = true, Dock = DockStyle.Bottom, Height = 42 };
-        ok.Click += (_, _) => { if (_list.SelectedItem is not null) DialogResult = DialogResult.OK; };
-        _list.DoubleClick += (_, _) => { if (_list.SelectedItem is not null) DialogResult = DialogResult.OK; };
-        Controls.Add(_list); Controls.Add(filter); Controls.Add(ok); Fill();
     }
 }

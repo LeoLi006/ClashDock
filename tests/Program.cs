@@ -73,15 +73,16 @@ internal static class Checks
             File.WriteAllText(jsPath, script + "\nconst c = main({rules:['MATCH,DIRECT']},'test'); if (!c.original || c.rules.length !== 4 || c['proxy-groups'].length !== 2) process.exit(1);\n");
             using var node = Process.Start(new ProcessStartInfo("node", jsPath) { UseShellExecute = false, CreateNoWindow = true })!;
             node.WaitForExit(); Check(node.ExitCode == 0, "Generated JavaScript executes and preserves original main");
-            IntegrationAsync(temp, yaml, draft).GetAwaiter().GetResult();
+
             ApplicationConfiguration.Initialize();
+            FeatureChecks.Run(Check, temp);
             var client = new MihomoClient("127.0.0.1", 1, "");
             using var form = new RoutingForm(client, new Settings { Routing = draft }, preview: true);
             form.Show();
             Application.DoEvents();
             var root = form.Controls.OfType<TableLayoutPanel>().Single();
             IEnumerable<Control> Descendants(Control parent) { foreach (Control child in parent.Controls) { yield return child; foreach (var nested in Descendants(child)) yield return nested; } }
-            var apply = Descendants(root).OfType<Button>().Single(b => b.Text == "保存并应用");
+            var apply = Descendants(root).OfType<Button>().Single(b => b.Text == "重试应用");
             Check(form.RectangleToScreen(form.ClientRectangle).Contains(apply.RectangleToScreen(apply.ClientRectangle)), "Apply button fits visible client area");
             using var image = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
@@ -95,69 +96,4 @@ internal static class Checks
         Console.WriteLine($"{_count} checks passed.");
     }
 
-    private static async Task IntegrationAsync(string temp, string yaml, RoutingSettings draft)
-    {
-        var directory = Path.Combine(temp, "verge"); Directory.CreateDirectory(Path.Combine(directory, "profiles"));
-        var scriptPath = Path.Combine(directory, "profiles", "Script.js");
-        const string original = "function main(c) { return c; }";
-        await File.WriteAllTextAsync(scriptPath, original);
-        await File.WriteAllTextAsync(Path.Combine(directory, "profiles.yaml"), "items:\n- uid: Script\n  type: script\n  file: Script.js\n");
-        await File.WriteAllTextAsync(Path.Combine(directory, "clash-verge.yaml"), yaml);
-        var reservation = new TcpListener(IPAddress.Loopback, 0); reservation.Start(); var port = ((IPEndPoint)reservation.LocalEndpoint).Port; reservation.Stop();
-        using var listener = new HttpListener(); listener.Prefixes.Add($"http://127.0.0.1:{port}/"); listener.Start();
-        var live = yaml; var rejectNext = false; var mode = "global";
-        using var cancel = new CancellationTokenSource();
-        var server = Task.Run(async () =>
-        {
-            while (!cancel.IsCancellationRequested)
-            {
-                HttpListenerContext context;
-                try { context = await listener.GetContextAsync(); } catch { break; }
-                var response = "{}";
-                var request = context.Request;
-                if (request.Url!.AbsolutePath == "/proxies")
-                    response = "{\"proxies\":{\"代理组\":{\"type\":\"Selector\",\"now\":\"node\",\"all\":[\"node\"]},\"node\":{\"type\":\"Shadowsocks\"}}}";
-                else if (request.Url.AbsolutePath == "/configs" && request.HttpMethod == "GET") response = JsonSerializer.Serialize(new { mode });
-                else if (request.Url.AbsolutePath == "/configs" && request.HttpMethod == "PUT")
-                {
-                    using var payload = JsonDocument.Parse(await new StreamReader(request.InputStream).ReadToEndAsync());
-                    if (rejectNext) { rejectNext = false; context.Response.StatusCode = 400; }
-                    else { live = payload.RootElement.GetProperty("payload").GetString()!; mode = "rule"; }
-                }
-                else if (request.Url.AbsolutePath == "/configs" && request.HttpMethod == "PATCH")
-                {
-                    using var payload = JsonDocument.Parse(await new StreamReader(request.InputStream).ReadToEndAsync()); mode = payload.RootElement.GetProperty("mode").GetString()!;
-                }
-                else if (request.Url.AbsolutePath == "/rules")
-                {
-                    var map = RoutingCompiler.ReadYaml(live);
-                    response = JsonSerializer.Serialize(new { rules = ((YamlSequenceNode)map.Children[new YamlScalarNode("rules")]).Children.Select(r =>
-                    {
-                        var p = r.ToString().Split(','); return new { type = p[0] switch { "DOMAIN-SUFFIX" => "DomainSuffix", "PROCESS-PATH" => "ProcessPath", _ => "Match" }, payload = p[0] == "MATCH" ? "" : p[1], proxy = p[^1] };
-                    }) });
-                }
-                var bytes = Encoding.UTF8.GetBytes(response); context.Response.ContentType = "application/json";
-                await context.Response.OutputStream.WriteAsync(bytes); context.Response.Close();
-            }
-        });
-        // 独立进程目录中的 settings.json，不接触用户的发布配置。
-        var settings = new Settings { Host = "127.0.0.1", Port = port, Routing = new RoutingSettings() };
-        var client = new MihomoClient("127.0.0.1", port, ""); var service = new RoutingService(client, settings);
-        draft.VergeDirectory = directory;
-        try
-        {
-            await service.ApplyAsync(draft);
-            Check((await File.ReadAllTextAsync(scriptPath)).Contains(RoutingCompiler.Begin), "Service installs persistent global script");
-            Check(settings.Routing == draft && mode == "rule", "Service verifies API rules and saves settings");
-            var installed = await File.ReadAllTextAsync(scriptPath);
-            rejectNext = true;
-            var next = new RoutingSettings { VergeDirectory = directory, Websites = [new() { Target = "other.example.com", Mode = "直连" }] };
-            var failed = false; try { await service.ApplyAsync(next); } catch (InvalidOperationException) { failed = true; }
-            Check(failed && await File.ReadAllTextAsync(scriptPath) == installed, "Rejected configuration restores original script");
-            Check(settings.Routing == draft && live.Contains("video.example.com"), "Rejected configuration restores previous routing state");
-            await service.ApplyAsync(new RoutingSettings { VergeDirectory = directory });
-            Check(!(await File.ReadAllTextAsync(scriptPath)).Contains(RoutingCompiler.Begin) && !live.Contains(RoutingCompiler.DirectGroup), "Empty configuration uninstalls managed routing");
-        }
-        finally { cancel.Cancel(); listener.Stop(); await server; }
-    }
 }

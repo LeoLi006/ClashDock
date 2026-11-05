@@ -8,6 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ClashDock</AssemblyName>
     <RootNamespace>ClashDock</RootNamespace>
+    <Version>1.1.0</Version>
+    <Product>ClashDock</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- 免安装单文件发布：自包含，无需目标机预装 .NET -->
