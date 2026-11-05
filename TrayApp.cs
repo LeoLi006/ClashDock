@@ -6,6 +6,8 @@ public sealed class TrayApp : ApplicationContext
     readonly MihomoClient client;
     readonly AutoRouting engine;
     readonly NotifyIcon tray;
+    readonly DesktopBridge bridge;
+    CheckRoutingForm? checkForm;
     readonly Control dispatcher = new();
     readonly System.Windows.Forms.Timer timer = new() { Interval = 12000 };
     readonly HotkeyWindow hotkey = new();
@@ -17,6 +19,7 @@ public sealed class TrayApp : ApplicationContext
         client = new(settings.Host, settings.Port, settings.Secret); engine = new(client, settings);
         dispatcher.CreateControl(); _ = dispatcher.Handle;
         if (SynchronizationContext.Current == null) SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+        bridge = new DesktopBridge(dispatcher, new BridgeDispatcher(client, engine, domain => { if(exiting)return; checkForm?.Close(); checkForm = new CheckRoutingForm(client,engine,domain,false); checkForm.Show(); ShowWindow(checkForm.Handle,9); SetForegroundWindow(checkForm.Handle); }));
         tray = new() { Icon = SystemIcons.Application, Text = "ClashDock", Visible = true };
         tray.DoubleClick += (_, _) => Show(); hotkey.HotkeyPressed += (_, _) => Show();
         engine.Changed += UpdateMenu; UpdateMenu();
@@ -48,7 +51,7 @@ public sealed class TrayApp : ApplicationContext
         if (exiting) return; exiting = true;
         try { form?.CommitPendingEdit(); await engine.FlushAsync(); }
         catch { exiting = false; MessageBox.Show("最后的修改尚未保存，暂未退出。请在主界面重试。"); return; }
-        timer.Stop(); timer.Dispose(); engine.Stop(); form?.Dispose(); hotkey.Dispose();
+        await bridge.StopAsync(); checkForm?.Dispose(); timer.Stop(); timer.Dispose(); engine.Stop(); form?.Dispose(); hotkey.Dispose();
         tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); client.Dispose(); dispatcher.Dispose(); ExitThread();
     }
 }

@@ -13,6 +13,10 @@ public sealed class AutoRouting
     bool pending, stopped, unsaved;
     public RoutingSettings Desired { get; private set; }
     public string Status { get; private set; } = "尚未核验 · 初次加载不会修改网络";
+    public long Revision => revision;
+    public RoutingSettings Applied => Copy(settings.Routing);
+    public bool AppliedPaused => settings.Paused;
+    public string StateCode => unsaved ? "save_failed" : Busy || pending ? "applying" : Status.StartsWith("已生效") ? "applied" : Status.StartsWith("已暂停") ? "paused" : Status.Contains("覆盖") ? "overwritten" : Status.Contains("控制器未连接") ? "controller_offline" : Status.Contains("失败") || Status.Contains("待重试") ? "retry" : "unknown";
     public bool Busy => !worker.IsCompleted;
     public bool Paused { get; private set; }
     public event Action? Changed;

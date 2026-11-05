@@ -76,6 +76,7 @@ internal static class Checks
 
             ApplicationConfiguration.Initialize();
             FeatureChecks.Run(Check, temp);
+            EnhancedChecks.Run(Check, temp);
             var client = new MihomoClient("127.0.0.1", 1, "");
             using var form = new RoutingForm(client, new Settings { Routing = draft }, preview: true);
             form.Show();

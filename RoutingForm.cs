@@ -8,6 +8,10 @@ public sealed class RoutingForm : Form
     private readonly AutoRouting _engine;
     private readonly bool _ownsEngine;
     private readonly Settings _settings;
+    private readonly PinStore _pins;
+    private readonly ToolTip _targetTip = new();
+    private long _renderedRevision;
+    private bool _selfChange;
     private readonly DataGridView _apps = Grid();
     private readonly DataGridView _sites = Grid();
     private readonly ModernSelect _proxy = new() { Width = 320 };
@@ -19,7 +23,7 @@ public sealed class RoutingForm : Form
     private readonly Dictionary<string, Image> _appIcons = new(StringComparer.OrdinalIgnoreCase);
     private readonly TextBox _appSearch = new();
     private readonly ModernSelect _defaultBehavior = new();
-    private readonly PillButton _tunButton = new() { Text = "目标状态", Outline = true, AutoSize = false };
+    private readonly PillButton _targetButton = new() { Text = "目标状态", Outline = true, AutoSize = false };
     private readonly Label _networkStatus = new() { Dock = DockStyle.Fill, ForeColor = Theme.Warn, Font = Theme.Small, AutoEllipsis = true };
     private NetworkSnapshot? _network;
     private bool _rulesVerified;
@@ -34,16 +38,19 @@ public sealed class RoutingForm : Form
     private bool _loading = true;
 
 
-    public RoutingForm(MihomoClient client, Settings settings, bool preview = false, AutoRouting? engine = null)
+    public RoutingForm(MihomoClient client, Settings settings, bool preview = false, AutoRouting? engine = null, PinStore? pins = null)
     {
         SuspendLayout();
         _preview = preview;
         _client = client;
         _settings = settings;
+        _pins = pins ?? new PinStore(memory: preview);
 
         _engine = engine ?? new AutoRouting(client, settings, preview ? Path.Combine(Path.GetTempPath(), Guid.NewGuid()+".json") : null); _ownsEngine = engine == null;
         settings = new Settings { Routing = AutoRouting.Copy(_engine.Desired) };
-        _engine.Changed += EngineChanged;
+        _engine.Changed += EngineChanged; _renderedRevision = _engine.Revision;
+        _client.Targets.Changed += TargetsChanged;
+        _proxy.DisplayText = _client.Targets.Display;
         Text = "ClashDock · 分流工作台";
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
         float dpiScale = DeviceDpi / 96f;
@@ -69,22 +76,28 @@ public sealed class RoutingForm : Form
         var caption = new Label { Text = "应用与网站分流", Font = Theme.Small, AutoSize = false, AutoEllipsis = true, Location = new(captionLeft, 12), Height = TextRenderer.MeasureText("Ag", Theme.Small).Height + 8, ForeColor = Theme.SubText };
         header.Controls.Add(caption);
         header.Resize += (_, _) => caption.Width = Math.Max(0, header.Width - captionLeft - 220);
-        _tunButton.Size = new Size(170, Math.Max(40, TextRenderer.MeasureText("Ag", Theme.Body).Height + 14));
-        _tunButton.Click += (_, _) => { if (!_preview) new TargetForm(_client).Show(this); };
-        header.Controls.Add(_tunButton); header.Resize += (_, _) => _tunButton.Location = new(Math.Max(0, header.Width - _tunButton.Width), 0);
+        _targetButton.Size = new Size(170, Math.Max(40, TextRenderer.MeasureText("Ag", Theme.Body).Height + 14));
+        _targetButton.Click += (_, _) => { if (!_preview) new TargetForm(_client).Show(this); };
+        header.Controls.Add(_targetButton); header.Resize += (_, _) => _targetButton.Location = new(Math.Max(0, header.Width - _targetButton.Width), 0);
         root.Controls.Add(header, 0, 0);
 
         var target = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Card, Padding = new Padding(16), Margin = new Padding(0, 0, 0, 18) };
         var targetLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, BackColor = Theme.Card };
         targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TextRenderer.MeasureText("代理目标", Theme.Body).Width + 18));
         targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TextRenderer.MeasureText("刷新目标", Theme.Body).Width + 36));
+        targetLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TextRenderer.MeasureText("测速 / 刷新", Theme.Body).Width + 36));
         targetLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         targetLayout.Controls.Add(new Label { Text = "代理目标", AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = Theme.SubText });
         UiStyle.Input(_proxy); _proxy.Dock = DockStyle.Fill; _proxy.Margin = new Padding(0, 1, 16, 0);
         targetLayout.Controls.Add(_proxy);
-        var refresh = new PillButton { Text = "刷新目标", Outline = true, SurfaceColor = Theme.Card, AutoSize = false, Dock = DockStyle.Fill, Margin = Padding.Empty };
-        refresh.Click += async (_, _) => { refresh.Enabled = false; try { await LoadTargetsAsync(); } finally { if (!refresh.IsDisposed) refresh.Enabled = true; } };
+        var refresh = new PillButton { Text = "测速 / 刷新", Outline = true, SurfaceColor = Theme.Card, AutoSize = false, Dock = DockStyle.Fill, Margin = Padding.Empty };
+        var targetMenu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Body };
+        foreach (string label in new[] { "读取已有测速记录", "测当前目标", "全部测速" }) targetMenu.Items.Add(label, null, async (_, _) => {
+            if (_preview) return;
+            try { if (label == "读取已有测速记录") await LoadTargetsAsync(); else if (label == "全部测速") await _client.Targets.MeasureAllAsync(_catalogLife.Token); else if (_proxy.SelectedItem is string name) await _client.Targets.MeasureAsync(name, _catalogLife.Token); }
+            catch (OperationCanceledException) { }
+        });
+        refresh.Click += (_, _) => targetMenu.Show(refresh, new Point(0, refresh.Height)); refresh.Disposed += (_, _) => targetMenu.Dispose();
         targetLayout.Controls.Add(refresh); target.Controls.Add(targetLayout); root.Controls.Add(target, 0, 1);
 
         var workspace = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
@@ -137,8 +150,37 @@ public sealed class RoutingForm : Form
         FormClosing += (_, e) => { CommitPendingEdit(); };
     }
     public void CommitPendingEdit() { _apps.EndEdit(); _sites.EndEdit(); }
-    private void EngineChanged() { if (IsDisposed) return; _status.Text = _engine.Status + (_availableTargets != null && _proxy.SelectedItem is string selected && selected.Length > 0 && !_availableTargets.Contains(selected) ? "\n所选目标已失效，请在上方重新选择代理目标修复。" : ""); _status.ForeColor = _engine.Status.Contains("失败") || _engine.Status.Contains("覆盖") ? Theme.Err : Theme.SubText; _apps.Invalidate(); }
+    private void EngineChanged() { if (!_selfChange && _renderedRevision != _engine.Revision && !IsDisposed) SyncIntent(); _renderedRevision = _engine.Revision; if (IsDisposed) return; _status.Text = _engine.Status + (_availableTargets != null && _proxy.SelectedItem is string selected && selected.Length > 0 && !_availableTargets.Contains(selected) ? "\n所选目标已失效，请在上方重新选择代理目标修复。" : ""); _status.ForeColor = _engine.Status.Contains("失败") || _engine.Status.Contains("覆盖") ? Theme.Err : Theme.SubText; _apps.Invalidate(); }
 
+    private void SyncIntent()
+    {
+        bool loading = _loading; _loading = true;
+        try {
+            _apps.CancelEdit(); _sites.CancelEdit(); var desired = _engine.Desired;
+            foreach (DataGridViewRow row in _apps.Rows) row.Cells[1].Value = desired.Applications.FirstOrDefault(e => e.Target.Equals(row.Cells[0].Value?.ToString(), StringComparison.OrdinalIgnoreCase))?.Mode ?? "默认";
+            foreach (var entry in desired.Applications) if (!_apps.Rows.Cast<DataGridViewRow>().Any(r => string.Equals(r.Cells[0].Value?.ToString(), entry.Target, StringComparison.OrdinalIgnoreCase))) _apps.Rows.Add(entry.Target, entry.Mode);
+            _sites.Rows.Clear(); Populate(_sites, desired.Websites); _directory.Text = desired.VergeDirectory; _defaultBehavior.SelectedItem = desired.DefaultBehavior;
+            RenderTargets(desired.Proxy); SortApps();
+        } finally { _loading = loading; }
+    }
+    private void TargetsChanged() { if (IsDisposed || _catalogDisposed) return; if (InvokeRequired) { try { BeginInvoke((Action)(() => RenderTargets(_proxy.SelectedItem ?? _engine.Desired.Proxy))); } catch (InvalidOperationException) { } } else RenderTargets(_proxy.SelectedItem ?? _engine.Desired.Proxy); }
+    private void RenderTargets(string selected)
+    {
+        if (IsDisposed || _catalogDisposed || _preview) return;
+        var names = _client.Targets.Snapshot.Select(t=>t.Name).ToList();
+        _availableTargets = names.ToHashSet(StringComparer.Ordinal);
+        if (selected.Length>0 && !names.Contains(selected)) names.Insert(0,selected);
+        _proxy.SetItems(names, selected); _proxy.RefreshDisplay();
+        _targetTip.SetToolTip(_proxy, _client.Targets.Find(selected)?.Summary ?? "目标未知或失效，请重新选择；未自动更换目标。");
+        if (_client.Targets.ReadState == "offline") _targetTip.SetToolTip(_proxy,"控制器连接失败；显示上次记录，请留意测试时间。");
+    }
+    private void TogglePin(string path) { try { _pins.Toggle(path); SortApps(); FilterApps(); _apps.Invalidate(); } catch(Exception e) when(e is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) { Error("无法保存置顶："+e.Message); } }
+    private void SortApps() { bool loading=_loading; _loading=true; try { _apps.Sort(new AppComparer(_pins)); } finally { _loading=loading; } }
+    private sealed class AppComparer(PinStore pins) : System.Collections.IComparer {
+        public int Compare(object? x, object? y) { var a=(DataGridViewRow)x!; var b=(DataGridViewRow)y!;string pa=a.Cells[0].Value?.ToString()??"",pb=b.Cells[0].Value?.ToString()??"";
+            int pin=pins.IsPinned(pb).CompareTo(pins.IsPinned(pa));if(pin!=0)return pin;
+            int name=StringComparer.OrdinalIgnoreCase.Compare((a.Tag as DiscoveredApp)?.Name??Path.GetFileNameWithoutExtension(pa),(b.Tag as DiscoveredApp)?.Name??Path.GetFileNameWithoutExtension(pb));return name!=0?name:StringComparer.OrdinalIgnoreCase.Compare(pa,pb); }
+    }
     private Panel Page(string title, DataGridView grid, bool app)
     {
         var page = new Panel { BackColor = Theme.Card, ForeColor = Theme.Text, Padding = new Padding(18) };
@@ -172,8 +214,8 @@ public sealed class RoutingForm : Form
         var remove = new PillButton { Text = app ? "恢复默认" : "移除", Outline = true, SurfaceColor = Theme.Card };
         remove.Click += (_, _) => { foreach (var row in grid.SelectedRows.Cast<DataGridViewRow>().ToArray()) if (!row.IsNewRow) { if (app) row.Cells[1].Value = "默认"; else grid.Rows.Remove(row); } };
         bar.Controls.Add(remove);
-        var diagnose = new PillButton { Text = "连接诊断", Outline = true, SurfaceColor = Theme.Card };
-        diagnose.Click += async (_, _) => { if (_preview || grid.SelectedRows.Count == 0) return; try { string target = grid.SelectedRows[0].Cells[0].Value?.ToString() ?? ""; NetworkConfirmation.ShowDetails(this, await _client.DiagnoseAsync(target, app)); } catch { Error("控制器连接失败，无法读取连接诊断。"); } };
+        var diagnose = new PillButton { Text = "检查分流", Outline = true, SurfaceColor = Theme.Card };
+        diagnose.Click += (_, _) => { if (_preview || grid.SelectedRows.Count == 0) return; string target = grid.SelectedRows[0].Cells[0].Value?.ToString() ?? ""; new CheckRoutingForm(_client, _engine, target, app).Show(this); };
         diagnose.Dock = DockStyle.Right; heading.Controls.Add(diagnose);
         page.Controls.Add(grid);
         page.Controls.Add(bar); page.Controls.Add(heading);
@@ -188,10 +230,10 @@ public sealed class RoutingForm : Form
         {
             var common = new PillButton { Text = "常用站点", Outline = true, SurfaceColor = Theme.Card };
             var menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Body };
-            foreach (var (name, domain) in new[] { ("GitHub", "github.com"), ("Google", "google.com"), ("YouTube", "youtube.com"), ("ChatGPT", "chatgpt.com"), ("Gemini", "gemini.google.com"), ("哔哩哔哩", "bilibili.com") })
-                menu.Items.Add(name, null, (_, _) => {
-                    using var dialog = new TextEntryDialog("查看并编辑网站模板", "用逗号分隔域名；资源域名可能变化，请按实际连接补充");
-                    dialog.SetValue(domain == "bilibili.com" ? "bilibili.com,bilivideo.com,hdslb.com,biliapi.net,biliapi.com" : domain);
+            foreach (var template in WebsiteTemplates.All)
+                menu.Items.Add(template.Name, null, (_, _) => {
+                    using var dialog = new TextEntryDialog("查看并编辑网站模板", "用逗号分隔域名；共享资源规则可能影响其他网站，确认后添加");
+                    dialog.SetValue(string.Join(",", template.Domains));
                     if (dialog.ShowDialog(this) != DialogResult.OK) return;
                     try { var domains = dialog.Value.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(RoutingCompiler.Domain).Distinct().ToArray(); bool loading = _loading; _loading = true; try { foreach (var d in domains) if (!grid.Rows.Cast<DataGridViewRow>().Any(r => r.Cells[0].Value?.ToString() == d)) grid.Rows.Add(d, "自动"); } finally { _loading = loading; } Dirty(); } catch (Exception e) { Error(e.Message); }
                 });
@@ -204,6 +246,13 @@ public sealed class RoutingForm : Form
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             try { string domain = RoutingCompiler.Domain(dialog.Value); if (grid.Rows.Cast<DataGridViewRow>().Any(r => r.Index != e.RowIndex && string.Equals(r.Cells[0].Value?.ToString(), domain, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("域名已存在。"); cell.Value = domain; } catch (Exception error) { Error(error.Message); }
         };
+        if (app) {
+            grid.CellMouseClick += (_, e) => { if (e.RowIndex < 0) return; if (e.Button == MouseButtons.Left && e.ColumnIndex == 0 && e.X < 34) TogglePin(grid.Rows[e.RowIndex].Cells[0].Value?.ToString() ?? ""); };
+            var pinMenu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Body }; var pinItem = pinMenu.Items.Add("置顶");
+            grid.CellMouseDown += (_, e) => { if (e.Button == MouseButtons.Right && e.RowIndex >= 0) { grid.ClearSelection(); grid.Rows[e.RowIndex].Selected=true; } };
+            pinMenu.Opening += (_, e) => { if (grid.SelectedRows.Count==0) { e.Cancel=true; return; } pinItem.Text=_pins.IsPinned(grid.SelectedRows[0].Cells[0].Value?.ToString()??"")?"取消置顶":"置顶"; };
+            pinItem.Click += (_, _) => { if(grid.SelectedRows.Count>0) TogglePin(grid.SelectedRows[0].Cells[0].Value?.ToString()??""); }; grid.ContextMenuStrip=pinMenu; grid.Disposed+=(_,_)=>pinMenu.Dispose();
+        }
         grid.CellPainting += (_, e) => PaintRule(grid, e, app);
         grid.Paint += (_, e) => { if (grid.Rows.Count == 0) TextRenderer.DrawText(e.Graphics, app ? "正在发现应用或没有匹配结果\n可点击「扫描应用」重新扫描" : "还没有网站规则\n点击「添加网站」开始设置", Theme.Body, new Rectangle(12, 100, Math.Max(1, grid.Width - 24), 70), Theme.SubText, TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak); };
         return page;
@@ -249,14 +298,15 @@ public sealed class RoutingForm : Form
         {
             var discovered = grid.Rows[e.RowIndex].Tag as DiscoveredApp;
             var name = app ? discovered?.Name ?? Path.GetFileNameWithoutExtension(value) : value;
-            int inset = app ? 52 : 14;
+            int inset = app ? 76 : 14;
+            if (app) TextRenderer.DrawText(g, _pins.IsPinned(value) ? "★" : "☆", Theme.Body, new Rectangle(r.X+6,r.Y,28,r.Height), _pins.IsPinned(value)?Theme.Warn:Theme.SubText, TextFormatFlags.VerticalCenter);
             if (app)
             {
                 if (!_appIcons.TryGetValue(value, out var image) && _appIcons.Count < 128)
                 {
                     try { using var icon = Icon.ExtractAssociatedIcon(value); if (icon != null) _appIcons[value] = image = icon.ToBitmap(); } catch (Exception error) when (error is ArgumentException or IOException or System.ComponentModel.Win32Exception) { }
                 }
-                if (image != null) g.DrawImage(image, new Rectangle(r.X + 14, r.Y + (r.Height - 26) / 2, 26, 26));
+                if (image != null) g.DrawImage(image, new Rectangle(r.X + 38, r.Y + (r.Height - 26) / 2, 26, 26));
             }
             grid.Rows[e.RowIndex].Cells[0].ToolTipText = value;
             TextRenderer.DrawText(g, name, Theme.Sub, new Rectangle(r.X + inset, r.Y + 10, Math.Max(1, r.Width - inset - 12), TextRenderer.MeasureText("Ag", Theme.Sub).Height), Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
@@ -319,7 +369,8 @@ public sealed class RoutingForm : Form
             var found = await ApplicationCatalog.ScanAsync(_catalogLife.Token);
             if (IsDisposed || _catalogLife.IsCancellationRequested) return;
             MergeApps(found);
-            if (!_dirty && _status.ForeColor != Theme.Err && !_engine.Status.Contains("待重试")) { _status.Text = $"发现 {found.Length} 个应用。默认沿用上方默认行为；选择代理／直连／自动后自动应用。"; _status.ForeColor = Theme.SubText; }
+            if (!_dirty) EngineChanged();
+            _appSearch.PlaceholderText = $"搜索应用名称或路径 · 已发现 {found.Length} 个应用";
         }
         catch (OperationCanceledException) { }
         catch { if (!IsDisposed) Error("部分应用未能识别。可重新扫描，或使用手动补充；现有规则保留。"); }
@@ -338,7 +389,7 @@ public sealed class RoutingForm : Form
                 if (!existing.TryGetValue(app.Path, out var row)) { int index = _apps.Rows.Add(app.Path, "默认"); row = _apps.Rows[index]; existing[app.Path] = row; }
                 row.Tag = app;
             }
-            FilterApps();
+            SortApps(); FilterApps();
         }
         finally { _apps.ResumeLayout(); _loading = loading; }
     }
@@ -388,26 +439,13 @@ public sealed class RoutingForm : Form
     {
         if (_loading || _preview || _catalogDisposed) return;
         _dirty = true;
-        try { _engine.Update(Draft()); } catch (Exception e) { Error(e.Message); }
+        try { _selfChange = true; _engine.Update(Draft()); } catch (Exception e) { Error(e.Message); } finally { _selfChange = false; }
     }
 
     private async Task LoadTargetsAsync()
     {
-        var selected = _proxy.SelectedItem?.ToString() ?? _engine.Desired.Proxy;
-        try
-        {
-            var targets = await _client.GetProxyNamesAsync();
-            if (IsDisposed) return;
-            selected = _proxy.SelectedItem ?? _engine.Desired.Proxy;
-            _availableTargets = targets.ToHashSet(StringComparer.Ordinal);
-            var wasLoading = _loading;
-            _loading = true;
-            try { if (selected.Length > 0 && !targets.Contains(selected)) { targets.Insert(0, selected); Error("所选代理目标已失效，请在上方重新选择目标修复。"); } _proxy.SetItems(targets, selected.Length > 0 ? selected : targets.FirstOrDefault()); }
-            finally { _loading = wasLoading; }
-            await RefreshNetworkAsync();
-            if (!_dirty) EngineChanged();
-        }
-        catch { if (IsDisposed) return; _network = null; _rulesVerified = false; UpdateNetworkLabel(); Error("未连接到 Clash。请先启动 Verge 并启用外部控制器；工具会自动读取本机连接配置。便携版可在设置中选择配置文件夹。"); }
+        await _client.Targets.RefreshAsync(_catalogLife.Token); if(IsDisposed || _catalogDisposed) return;
+        RenderTargets(_proxy.SelectedItem ?? _engine.Desired.Proxy); await RefreshNetworkAsync(); if(!_dirty) EngineChanged();
     }
 
     private Task ApplyAsync() { if (!_preview) { CommitPendingEdit(); _engine.Retry(); } return Task.CompletedTask; }
@@ -420,6 +458,7 @@ public sealed class RoutingForm : Form
     {
         if (disposing && !_catalogDisposed)
         {
+            _client.Targets.Changed -= TargetsChanged; _targetTip.Dispose();
             _engine.Changed -= EngineChanged; if (_ownsEngine) _engine.Stop();
             _catalogDisposed = true; _networkGeneration++; _networkTimer.Stop(); _networkTimer.Dispose(); _catalogLife.Cancel(); _catalogLife.Dispose();
             foreach (var icon in _appIcons.Values) icon.Dispose(); _appIcons.Clear();

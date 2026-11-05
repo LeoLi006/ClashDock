@@ -19,7 +19,7 @@ internal static class DiscoveryChecks
         form.Show(); Application.DoEvents();
         form.MergeApps([catalog[0], new("浏览器", @"C:\Apps\Browser.exe", "fixture")]);
         var grid = Field<DataGridView>(form, "_apps");
-        checks["automatic_listing_preserves_saved_mode"] = grid.Rows.Count == 2 && grid.Rows[0].Cells[1].Value?.ToString() == "直连";
+        checks["automatic_listing_preserves_saved_mode"] = grid.Rows.Count == 2 && grid.Rows.Cast<DataGridViewRow>().Single(r => r.Cells[0].Value?.ToString() == @"C:\Apps\Code.exe").Cells[1].Value?.ToString() == "直连";
         checks["discovery_does_not_mark_dirty"] = !Field<bool>(form, "_dirty");
         var added = grid.Rows.Cast<DataGridViewRow>().Single(r => r.Cells[0].Value?.ToString() == @"C:\Apps\Browser.exe");
         checks["new_discovery_defaults_to_inherited_policy"] = added.Cells[1].Value?.ToString() == "默认";

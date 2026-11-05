@@ -15,10 +15,13 @@ internal static class FeatureChecks
         public int Reloads, Writes, Active, MaxActive, SelectionWrites;
         public readonly Dictionary<string,string> Selections = new() { ["group"] = "node" };
         public int DelayMs;
+        public string? ProxyJson;
+        public Func<int,object>? Connections; public int ConnectionReads; public int ConnectionDelayMs;
+        public readonly List<string> Requests = new();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
         {
             if (Offline) throw new HttpRequestException("offline");
-            string path = req.RequestUri!.AbsolutePath; object result = new { }; int code = 200;
+            string path = req.RequestUri!.AbsolutePath;Requests.Add(req.Method+" "+path); object result = new { }; int code = 200;
             if (req.Method != HttpMethod.Get) Writes++;
             if (path.EndsWith("/delay")) {
                 if (path.Contains("timeout-probe")) return new HttpResponseMessage(HttpStatusCode.GatewayTimeout);
@@ -26,6 +29,7 @@ internal static class FeatureChecks
                 int active = Interlocked.Increment(ref Active); MaxActive = Math.Max(MaxActive, active);
                 try { await Task.Delay(30, ct); result = new { delay = 42 }; } finally { Interlocked.Decrement(ref Active); }
             }
+            else if (path == "/proxies" && ProxyJson != null) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ProxyJson) };
             else if (path == "/proxies") {
                 var proxies = new Dictionary<string,object> {
                     ["group"] = new { type = "Selector", now = Selections["group"], all = new[] { "node", "other" } },
@@ -58,7 +62,8 @@ internal static class FeatureChecks
                     var p = n.ToString().Split(','); return new { type = p[0] switch { "DOMAIN-SUFFIX" => "DomainSuffix", "PROCESS-PATH" => "ProcessPath", "PROCESS-NAME" => "ProcessName", _ => "Match" }, payload = p[0] == "MATCH" ? "" : p[1], proxy = p[^1] };
                 }) };
             }
-            else if (path == "/connections") result = new { connections = new[] { new { metadata = new { process = "app.exe", processPath = @"C:\Apps\app.exe", host = "video.example.com", destinationIP = "1.2.3.4" }, rule = "DomainSuffix", rulePayload = "example.com", chains = new[] { "node", "group" } } } };
+            else if (path == "/connections") { if(ConnectionDelayMs>0)await Task.Delay(ConnectionDelayMs,ct); result = Connections?.Invoke(++ConnectionReads) ?? new { connections = new[] { new { metadata = new { process = "app.exe", processPath = @"C:\Apps\app.exe", host = "video.example.com", destinationIP = "1.2.3.4" }, rule = "DomainSuffix", rulePayload = "example.com", chains = new[] { "node", "group" } } } };
+            }
             return new HttpResponseMessage((HttpStatusCode)code) { Content = new StringContent(JsonSerializer.Serialize(result), Encoding.UTF8, "application/json") };
         }
     }

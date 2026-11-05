@@ -10,11 +10,13 @@ public sealed partial class MihomoClient : IDisposable
     private readonly HttpClient _http;
     private readonly string _base;
     private readonly string _secret;
-    public void Dispose() => _http.Dispose();
+    public void Dispose() { Targets.Dispose(); _http.Dispose(); }
     public bool IsLocal { get; }
+    public TargetCache Targets { get; }
 
     public MihomoClient(string host, int port, string secret, HttpMessageHandler? handler = null)
     {
+        Targets = new TargetCache(this);
         IsLocal = host is "localhost" or "127.0.0.1" or "::1" or "[::1]";
         _secret = secret;
         _base = $"http://{host}:{port}";
@@ -27,9 +29,9 @@ public sealed partial class MihomoClient : IDisposable
         }
     }
 
-    public async Task<NetworkSnapshot> GetNetworkAsync()
+    public async Task<NetworkSnapshot> GetNetworkAsync(CancellationToken ct = default)
     {
-        using var response = await _http.GetAsync($"{_base}/configs"); await EnsureAsync(response);
+        using var response = await _http.GetAsync($"{_base}/configs", ct); await EnsureAsync(response);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("mode", out var mode) || mode.ValueKind != JsonValueKind.String || mode.GetString() is not ("rule" or "global" or "direct"))
             throw new IOException("控制器返回的网络模式无效，未认定运行正常。");
@@ -48,9 +50,9 @@ public sealed partial class MihomoClient : IDisposable
         if (_secret.Length > 0) reason = reason.Replace(_secret, "[已隐藏]");
         throw new InvalidOperationException($"HTTP {(int)response.StatusCode} · " + reason[..Math.Min(500, reason.Length)]);
     }
-    public async Task<string[]> GetRuleSequenceAsync()
+    public async Task<string[]> GetRuleSequenceAsync(CancellationToken ct = default)
     {
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync($"{_base}/rules"));
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync($"{_base}/rules", ct));
         return doc.RootElement.GetProperty("rules").EnumerateArray().Select(r => $"{r.GetProperty("type").GetString()}|{r.GetProperty("payload").GetString()}|{r.GetProperty("proxy").GetString()}").ToArray();
     }
 

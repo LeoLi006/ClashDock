@@ -206,6 +206,10 @@ public sealed class ModernSelect : Control
     private ListBox? _list;
 
     public event EventHandler? SelectedIndexChanged;
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<string, string>? DisplayText { get; set; }
+    public string FormatItem(string name) => DisplayText?.Invoke(name) ?? name;
+    public void RefreshDisplay() { Invalidate(); _list?.Invalidate(); }
 
     public ModernSelect()
     {
@@ -273,7 +277,7 @@ public sealed class ModernSelect : Control
         using (var pen = new Pen(_open || Focused ? Theme.Accent : Theme.Border, 1f))
             e.Graphics.DrawPath(pen, path);
 
-        var text = SelectedItem ?? "—";
+        var text = SelectedItem is string name ? FormatItem(name) : "—";
         var color = SelectedItem is null ? Theme.SubText : Theme.Text;
         TextRenderer.DrawText(e.Graphics, text, Font,
             new Rectangle(14, 0, Width - 44, Height), color,
@@ -404,7 +408,7 @@ public sealed class ModernSelect : Control
         bool selected = (e.State & DrawItemState.Selected) != 0;
         using (var b = new SolidBrush(selected ? Theme.CardHover : Theme.Card2))
             e.Graphics.FillRectangle(b, e.Bounds);
-        TextRenderer.DrawText(e.Graphics, _items[e.Index], Font,
+        TextRenderer.DrawText(e.Graphics, FormatItem(_items[e.Index]), Font,
             new Rectangle(e.Bounds.X + 10, e.Bounds.Y, e.Bounds.Width - 18, e.Bounds.Height),
             e.Index == _sel ? Theme.Accent : Theme.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);

@@ -12,3 +12,6 @@ artifacts/
 *.clashdock*.bak
 
 routing-intent.json*
+
+ui-preferences.json*
+native-host/
