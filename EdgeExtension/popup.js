@@ -1,7 +1,7 @@
 'use strict';
 (()=>{
  const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-mode]')];let domain=null,tabId=null,state=null,sequence=0,wanted=null,optimistic=null,sending=false,readGeneration=0,poll=null,closed=false,connected=false,templates=[];
- const channel=new ClashDockUI.Channel(name=>chrome.runtime.connectNative(name),()=>{void chrome.runtime.lastError;offline('通信桥断开，请检查安装后刷新；未重复提交修改。')});
+ const channel=new ClashDockUI.Channel(name=>chrome.runtime.connectNative(name),()=>{const error=chrome.runtime.lastError?.message||'Native host disconnected';offline('通信桥断开：'+error);return error});
  const codes={applied:'已生效 · 内核已核验',applying:'正在应用…',paused:'分流已暂停',retry:'应用失败 · 可重试',save_failed:'保存失败',overwritten:'配置被覆盖',controller_offline:'控制器未连接',unknown:'状态尚待核验'};
  function notice(text){$('notice').textContent=text}
  function status(text,detail='',kind=''){ $('status').textContent=text;$('statusDetail').textContent=detail;$('statusBox').className='status '+kind; }
@@ -19,7 +19,7 @@
  function schedule(){clearTimeout(poll);if(!closed&&connected&&domain&&state)poll=setTimeout(()=>reload(),1500)}
  async function reload(){if(closed)return;if(sending||wanted){schedule();return}try{await context();if(!domain)return;const current=++readGeneration,scope=domain;const reply=await channel.request('state',{domain:scope});if(closed||current!==readGeneration||scope!==domain||sending)return;
    if(!reply.ok){offline(reply.message);return}if(accept(reply.data)){render();notice('');}schedule();
-  }catch{if(!closed)offline('无法连接本机通信桥或请求超时。先按安装指南检查注册，再点击刷新。')}
+  }catch(error){if(!closed)offline('通信桥连接失败：'+String(error?.message||error).slice(0,300))}
  }
  async function ensureContext(){const changed=await context();if(changed){await reload();notice('页面地址已变化，请确认域名后重新操作。');return false}return Boolean(domain&&state)}
  async function drain(){if(sending||!wanted)return;sending=true;clearTimeout(poll);try{while(wanted&&!closed){const item=wanted;wanted=null;const scope=domain,fields={domain:scope,mode:item.mode,session:state.session,baseRevision:state.revision,sequence:item.sequence,...item.extra};let reply=await channel.request(item.op,fields);
@@ -33,7 +33,7 @@
  async function queue(mode,op='setSite',extra={}){if(!await ensureContext())return;sequence++;optimistic=op==='setSite'?mode:null;wanted={mode,op,extra,sequence};render();void drain()}
  buttons.forEach(b=>b.addEventListener('click',()=>queue(b.dataset.mode)));
  $('refresh').addEventListener('click',()=>{notice('');void reload()});
- $('start').addEventListener('click',async()=>{try{const r=await channel.request('start');notice(r.message);if(r.ok)setTimeout(()=>reload(),1800)}catch{notice('无法连接通信桥，请先按安装指南完成当前用户注册。')}});
+ $('start').addEventListener('click',async()=>{try{const r=await channel.request('start');notice(r.message);if(r.ok)setTimeout(()=>reload(),1800)}catch(error){notice('通信桥连接失败：'+String(error?.message||error).slice(0,300))}});
  $('retry').addEventListener('click',()=>queue(state?.mode??'自动','retry'));
  $('check').addEventListener('click',async()=>{if(!await ensureContext())return;try{const r=await channel.request('check',{domain,session:state.session});notice(r.message)}catch{notice('检查窗口未确认打开，请刷新后重试。')}});
  $('reloadTab').addEventListener('click',async()=>{if(tabId!=null){await chrome.tabs.reload(tabId);notice('已按你的操作刷新网页。')}});

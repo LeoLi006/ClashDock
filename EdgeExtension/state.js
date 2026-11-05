@@ -7,7 +7,7 @@
   ensure(){if(this.closed)throw Error('closed');if(this.port)return;const p=this.connect(HOST);this.port=p;p.onMessage.addListener(message=>{
     const pending=this.pending.get(message?.id);if(!pending||message.version!==1||pending.port!==p)return;
     this.pending.delete(message.id);clearTimeout(pending.timer);if(Date.now()>pending.expires)pending.reject(Error('timeout'));else pending.resolve(message);
-   });p.onDisconnect.addListener(()=>{if(this.port!==p)return;this.port=null;for(const [id,r]of this.pending){if(r.port===p){clearTimeout(r.timer);r.reject(Error('disconnected'));this.pending.delete(id)}}this.onDisconnect();});}
+   });p.onDisconnect.addListener(()=>{if(this.port!==p)return;this.port=null;const reason=this.onDisconnect()||'disconnected';for(const [id,r]of this.pending){if(r.port===p){clearTimeout(r.timer);r.reject(Error(reason));this.pending.delete(id)}}});}
   request(op,fields={}){try{this.ensure()}catch(e){return Promise.reject(e)}if(this.pending.size>=16)return Promise.reject(Error('too_many_requests'));
    const id=crypto.randomUUID().replaceAll('-',''),expires=Date.now()+this.timeout;
    const message={...fields,version:1,id,op,client:this.client,expiresAt:expires};const p=this.port;
