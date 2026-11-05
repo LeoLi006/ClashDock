@@ -12,6 +12,16 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));let ws;
  await call('Page.enable');await call('Emulation.setDeviceMetricsOverride',{width:430,height:940,deviceScaleFactor:1,mobile:false});let report=null;
  for(let i=0;i<150;i++){const result=await call('Runtime.evaluate',{expression:'document.getElementById("harness-result")?.textContent',returnByValue:true});if(result.result.value){report=JSON.parse(result.result.value);break}await sleep(100)}
  assert.ok(report,'UI harness completed');fs.writeFileSync(path.join(root,'artifacts','popup-ui-checks.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+ const layouts=[];
+ for(const zoom of [1,1.25,1.5]) {
+  await call('Emulation.setDeviceMetricsOverride',{width:Math.floor(430/zoom),height:Math.floor(940/zoom),deviceScaleFactor:zoom,mobile:false});
+  await call('Runtime.evaluate',{expression:`document.getElementById('more').open=false;document.getElementById('domain').textContent='${'long-domain-'.repeat(5)}example.com';document.getElementById('target').textContent='${'Very long proxy target · '.repeat(20)}';`});
+  const layout=await call('Runtime.evaluate',{expression:`({noHorizontalOverflow:document.documentElement.scrollWidth<=innerWidth,actionsVisible:!!document.getElementById('check').offsetWidth&&!!document.getElementById('reloadTab').offsetWidth})`,returnByValue:true});
+  assert.ok(layout.result.value.noHorizontalOverflow&&layout.result.value.actionsVisible,'zoom-equivalent layout '+zoom);layouts.push({zoom,...layout.result.value});
+ }
+ console.log('Zoom-equivalent CSS viewport checks: '+JSON.stringify(layouts));
+ await call('Emulation.setDeviceMetricsOverride',{width:430,height:940,deviceScaleFactor:1,mobile:false});
+ await call('Runtime.evaluate',{expression:`document.getElementById('domain').textContent='video.example.com';`});
  const screenshot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});fs.writeFileSync(path.join(root,'artifacts','extension-popup.png'),Buffer.from(screenshot.data,'base64'));assert.equal(report.error,null);assert.ok(Object.values(report.checks).every(Boolean));
  ws.close();browser.kill();console.log(Object.keys(report.checks).length+' rendered popup checks passed.');
 })().catch(e=>{console.error(e);ws?.close();browser.kill();process.exitCode=1});

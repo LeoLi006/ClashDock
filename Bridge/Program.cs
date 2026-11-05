@@ -45,7 +45,7 @@ internal static class Program
         using var pipe=new NamedPipeClientStream(".",BridgeProtocol.PipeName(AppContext.BaseDirectory),PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
         try{await pipe.ConnectAsync(1000,timeout.Token);}catch(Exception e)when(e is IOException or TimeoutException or OperationCanceledException){return BridgeProtocol.Error(request.Id,"desktop_offline");}
         try{
-            await BridgeProtocol.WriteAsync(pipe,JsonSerializer.SerializeToUtf8Bytes(new BridgeEnvelope(BridgeProtocol.Origin,request),BridgeProtocol.Json),timeout.Token);
+            await BridgeProtocol.WriteAsync(pipe,JsonSerializer.SerializeToUtf8Bytes(new BridgeEnvelope(BridgeProtocol.Origin,request,BrowserParent.IsEdge()),BridgeProtocol.Json),timeout.Token);
             var data=await BridgeProtocol.ReadAsync(pipe,timeout.Token);if(data==null)return BridgeProtocol.Error(request.Id,"disconnected");
             var reply=JsonSerializer.Deserialize<BridgeReply>(data,BridgeProtocol.Json);
             if(reply==null||reply.Id!=request.Id||reply.Version!=1)return BridgeProtocol.Error(request.Id,"stale_response");return reply;

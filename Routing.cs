@@ -199,10 +199,12 @@ public sealed class RoutingService(MihomoClient client, Settings settings, Actio
             var rules = RoutingCompiler.Rules(draft);
             var networkBefore = await client.GetNetworkAsync();
             var orderedRulesBefore = await client.GetRuleSequenceAsync();
+            if (rules.Count > 0 && networkBefore.Mode != "rule")
+                throw new RoutingFailure("mode_bypass", "当前不是规则模式，未应用或自动切换；请在 Verge 核对模式后重试。");
             if (draft.Applications.Any(e => e.Mode == "代理") || draft.Websites.Any(e => e.Mode == "代理"))
             {
                 var names = await client.GetProxyNamesAsync();
-                if (!names.Contains(draft.Proxy)) throw new InvalidOperationException("代理目标已不存在，请重新选择节点或策略组。");
+                if (!names.Contains(draft.Proxy)) throw new RoutingFailure("target_missing", "代理目标已不存在，请重新选择节点或策略组。");
             }
             var directory = Path.GetFullPath(draft.VergeDirectory);
             var runtimePath = Path.Combine(directory, "clash-verge.yaml");
@@ -220,7 +222,7 @@ public sealed class RoutingService(MihomoClient client, Settings settings, Actio
             var originalScript = await File.ReadAllTextAsync(scriptPath);
             var originalRuntime = await File.ReadAllTextAsync(runtimePath);
             if (!SubscriptionMatches(originalRuntime, orderedRulesBefore))
-                throw new InvalidOperationException("当前内核的非托管规则与 Verge 生成配置不一致，未覆盖网络配置。请先在 Verge 重新生成／应用当前订阅，再重试。");
+                throw new RoutingFailure("subscription_mismatch", "当前内核的非托管规则与 Verge 生成配置不一致，未覆盖网络配置。请先在 Verge 重新生成／应用当前订阅，再重试。");
             var updatedScript = RoutingCompiler.Script(originalScript, rules, draft.Proxy);
             var updatedRuntime = PreserveNetwork(RoutingCompiler.Runtime(originalRuntime, rules, draft.Proxy, await client.GetProxyNamesAsync()), networkBefore, preserveMode: rules.Count == 0);
             var selections = await client.GetSelectorGroupsAsync();

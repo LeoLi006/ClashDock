@@ -8,6 +8,7 @@ public sealed class BridgeDispatcher : IDisposable
     readonly Dictionary<string,(string Fingerprint,BridgeReply Reply,long Time)> seen=new(StringComparer.Ordinal);
     readonly Dictionary<string,(long Sequence,long Time)> sequences=new(StringComparer.Ordinal);
     readonly RoutingInspector inspector;Inspection? inspection;DateTimeOffset checkedAt=DateTimeOffset.MinValue;Task? verifying;long verifiedRevision=-1;DateTimeOffset targetsAt=DateTimeOffset.MinValue;
+    long snapshot;
     public string Session { get; }=Guid.NewGuid().ToString("N");
     public BridgeDispatcher(MihomoClient client,AutoRouting engine,Action<string> openCheck){this.client=client;this.engine=engine;this.openCheck=openCheck;inspector=new(client,engine);}
     public async Task<BridgeReply> HandleAsync(BridgeEnvelope envelope,CancellationToken ct)
@@ -19,6 +20,7 @@ public sealed class BridgeDispatcher : IDisposable
         ct.ThrowIfCancellationRequested();if(r.Op=="start")return BridgeProtocol.Error(r.Id,"unknown_operation");
         if(r.Op=="templates")return new(1,r.Id,true,"ok","",JsonSerializer.SerializeToElement(WebsiteTemplates.All,BridgeProtocol.Json));
         if(r.Op=="state") {
+            if(envelope.BrowserProcessObserved) BridgeHealth.ObserveBrowserRequest();
             if(DateTimeOffset.UtcNow-targetsAt>TimeSpan.FromSeconds(30)){targetsAt=DateTimeOffset.UtcNow;await client.Targets.RefreshAsync(ct);}
             if(verifying==null && (verifiedRevision!=engine.Revision || DateTimeOffset.UtcNow-checkedAt>TimeSpan.FromSeconds(4))) verifying=Verify(domain);
             if(verifying is Task flight){await flight.WaitAsync(ct);if(ReferenceEquals(verifying,flight)&&flight.IsCompleted)verifying=null;}
@@ -38,7 +40,7 @@ public sealed class BridgeDispatcher : IDisposable
         BridgeReply reply;
         try{
             if(r.Op=="check"){openCheck(domain);reply=new(1,r.Id,true,"opened","已打开只读检查面板，不代表规则生效。",BuildState(domain));}
-            else if(r.Op=="retry"){engine.Retry();reply=State(r.Id,domain,"accepted");}
+            else if(r.Op=="retry"){if(!r.ConfirmAll)return WithState(r.Id,"confirmation_required",domain);engine.Retry();reply=State(r.Id,domain,"accepted");}
             else {
                 var draft=AutoRouting.Copy(engine.Desired);var domains=r.Op=="setSite"?new[]{domain}:TemplateDomains(r);
                 foreach(var host in domains){draft.Websites.RemoveAll(e=>e.Target.Equals(host,StringComparison.OrdinalIgnoreCase));draft.Websites.Add(new(){Target=host,Mode=r.Mode});}
@@ -58,12 +60,10 @@ public sealed class BridgeDispatcher : IDisposable
     JsonElement BuildState(string domain){
         var desired=engine.Desired;var entry=desired.Websites.FirstOrDefault(e=>e.Target.Equals(domain,StringComparison.OrdinalIgnoreCase));
         var inherited=desired.Websites.Where(e=>e.Mode!="自动"&&domain.EndsWith("."+e.Target,StringComparison.OrdinalIgnoreCase)).OrderByDescending(e=>e.Target.Length).FirstOrDefault();
-        string state=engine.StateCode;
-        if(inspection?.Connected==false)state="controller_offline";
-        else if(state is "applied" or "paused" && (inspection==null||inspection.Revision!=engine.Revision))state="unknown";
-        else if(inspection?.RulesAccepted==false && state is "applied" or "paused" or "unknown")state="overwritten";
-        return JsonSerializer.SerializeToElement(new {session=Session,revision=engine.Revision,domain,mode=entry?.Mode??"自动",inherited=entry?.Mode is null or "自动"?inherited?.Target:null,inheritedMode=inherited?.Mode,
-            paused=engine.Paused,appliedPaused=engine.AppliedPaused,state,controllerConnected=inspection?.Connected,runningMode=inspection?.Mode??"未知",rulesAccepted=inspection?.RulesAccepted,verifiedAt=inspection==null?(DateTimeOffset?)null:checkedAt,
+        var view=RoutingState.Describe(engine,inspection);
+        var counts=RoutingState.Counts(desired);
+        return JsonSerializer.SerializeToElement(new {session=Session,revision=engine.Revision,snapshot=++snapshot,domain,mode=entry?.Mode??"自动",inherited=entry?.Mode is null or "自动"?inherited?.Target:null,inheritedMode=inherited?.Mode,
+            paused=engine.Paused,appliedPaused=engine.AppliedPaused,state=view.Code,stateMessage=view.Message,next=view.Next,reason=view.Reason,intentSaved=engine.IntentSaved,phase=engine.StateCode,applicationCount=counts.Apps,websiteCount=counts.Sites,browserRequestAt=BridgeHealth.LastBrowserRequest,defaultBehavior=desired.DefaultBehavior,retryScope=RoutingState.RetryScope(desired,engine.Paused),controllerConnected=inspection?.Connected,runningMode=inspection?.Mode??"未知",rulesAccepted=inspection?.RulesAccepted,verifiedAt=inspection==null?(DateTimeOffset?)null:checkedAt,
             target=desired.Proxy,targetDisplay=client.Targets.Display(desired.Proxy),targetTime=client.Targets.Find(desired.Proxy)?.Time,
             scope="当前域名及其子域名；同域名标签页共用，也影响其他应用访问此域名",generation="1.2.0"},BridgeProtocol.Json);
     }

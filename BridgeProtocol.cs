@@ -18,10 +18,11 @@ public sealed class BridgeRequest
     public string Session { get; set; } = "";
     public long BaseRevision { get; set; }
     public long ExpiresAt { get; set; }
+    public bool ConfirmAll { get; set; }
     public string Template { get; set; } = "";
     public string[] Domains { get; set; } = [];
 }
-public sealed record BridgeEnvelope(string Origin,BridgeRequest Request);
+public sealed record BridgeEnvelope(string Origin,BridgeRequest Request,bool BrowserProcessObserved=false);
 public sealed record BridgeReply(int Version,string Id,bool Ok,string Code,string Message,JsonElement? Data=null);
 public static class BridgeProtocol
 {
@@ -58,5 +59,5 @@ public static class BridgeProtocol
         await stream.WriteAsync(header,ct);await stream.WriteAsync(bytes,ct);await stream.FlushAsync(ct);
     }
     public static BridgeReply Error(string id,string code)=>new(1,id,false,code,code switch {
-        "desktop_offline"=>"ClashDock 未运行，请点击启动。","controller_offline"=>"控制器未连接，请先检查 Verge。","expired"=>"请求已超时；先刷新状态，不自动重复修改。","conflict"=>"配置已变化，请刷新后重试。","session_changed"=>"桌面端已重启，请刷新后重新选择。","stale_sequence"=>"已忽略过期选择，请刷新状态。","invalid_domain"=>"此地址不支持网站分流。","unauthorized_origin"=>"扩展未获准。","duplicate_conflict"=>"请求编号与原内容不一致。",_=>"请求未执行（"+code+"），请检查桌面端。"});
+        "confirmation_required"=>"请先预览并确认重新应用全部分流的影响范围。","desktop_offline"=>"ClashDock 未运行，请点击启动。","controller_offline"=>"控制器未连接，请先检查 Verge。","expired"=>"请求已超时；先刷新状态，不自动重复修改。","conflict"=>"配置已变化，请刷新后重试。","session_changed"=>"桌面端已重启，请刷新后重新选择。","stale_sequence"=>"已忽略过期选择，请刷新状态。","invalid_domain"=>"此地址不支持网站分流。","unauthorized_origin"=>"扩展未获准。","duplicate_conflict"=>"请求编号与原内容不一致。",_=>"请求未执行（"+code+"），请检查桌面端。"});
 }

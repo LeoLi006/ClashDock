@@ -83,15 +83,15 @@ internal static class FeatureChecks
         engine.Update(Draft("代理")); engine.Update(Draft("直连")); engine.Update(Draft("代理"));
         check(File.Exists(intent) && fake.Writes == 0, "Intent durable before debounce");
         Spin(600); Wait(engine.FlushAsync()); check(fake.Reloads == 1 && settings.Routing.Applications[0].Mode == "代理", "Debounce collapses rapid edits to last choice");
-        check(engine.Status.StartsWith("已生效") && !File.Exists(intent), "Applied only after rule and selector verification");
+        check(engine.StateCode=="applied" && !File.Exists(intent), "Applied only after rule and selector verification");
         int reloads = fake.Reloads; engine.Update(Draft("代理","other")); Wait(engine.FlushAsync());
         check(fake.Reloads == reloads && fake.Selections[RoutingCompiler.ProxyGroup] == "other", "Proxy target uses selector without full reload");
         fake.DelayMs = 100; engine.Update(Draft("直连")); engine.Retry(); engine.Update(Draft("自动")); Wait(engine.FlushAsync());
-        check(settings.Routing.Applications[0].Mode == "自动" && engine.Status.StartsWith("已生效"), "Edits during apply serialize to latest revision"); fake.DelayMs = 0;
+        check(settings.Routing.Applications[0].Mode == "自动" && engine.StateCode=="applied", "Edits during apply serialize to latest revision"); fake.DelayMs = 0;
         var previous = File.ReadAllText(script); fake.Reject = true; engine.Update(Draft("直连")); Wait(engine.FlushAsync());
         check(engine.Status.Contains("失败") && File.Exists(intent) && engine.Desired.Applications[0].Mode == "直连", "Failure preserves durable user intent");
         check(File.ReadAllText(script) == previous && settings.Routing.Applications[0].Mode == "自动", "Rejected reload restores user script and prior applied state");
-        engine.Retry(); Wait(engine.FlushAsync()); check(engine.Status.StartsWith("已生效"), "Explicit retry recovers failed application");
+        engine.Retry(); Wait(engine.FlushAsync()); check(engine.StateCode=="applied", "Explicit retry recovers failed application");
         fake.Live = Fake.Source; Wait(engine.VerifyAsync(client)); check(engine.Status.Contains("覆盖"), "Verge overwrite detected without automatic repair");
         int writes = fake.Writes; Wait(engine.VerifyAsync(client)); check(fake.Writes == writes, "Verification never competes with Verge");
         engine.Retry(); Wait(engine.FlushAsync());
@@ -100,13 +100,13 @@ internal static class FeatureChecks
         var restarted = new AutoRouting(client, settings, Path.Combine(temp,"restart.json"), () => {});
         check(restarted.Paused && restarted.Desired.Applications.Count == 1, "Paused restart retains resume configuration"); restarted.Stop();
         int pausedWrites = fake.Writes; engine.Update(Draft("直连")); Wait(engine.FlushAsync()); check(fake.Writes == pausedWrites && engine.Status.Contains("待核验"), "Editing while paused saves without controller mutations or unverified success");
-        engine.TogglePause(); Wait(engine.FlushAsync()); check(!settings.Paused && File.ReadAllText(script).Contains(RoutingCompiler.Begin), "Resume restores retained routing");
+        fake.Mode="rule"; engine.TogglePause(); Wait(engine.FlushAsync()); check(!settings.Paused && File.ReadAllText(script).Contains(RoutingCompiler.Begin), "Resume restores retained routing");
         engine.Update(Draft("代理")); Wait(engine.FlushAsync()); engine.Undo(); Wait(engine.FlushAsync()); check(settings.Routing.Applications[0].Mode == "直连", "Undo restores previous successful routing intent");
         for (int i=0;i<7;i++) { engine.Update(Draft(i%2==0 ? "代理":"直连")); Wait(engine.FlushAsync()); }
         check(Directory.GetFiles(Path.GetDirectoryName(script)!,"Script.js.clashdock-*.bak").Length <= 5, "Script backup retention bounded to five");
         engine.RemoveAll(); Wait(engine.FlushAsync()); check(!File.ReadAllText(script).Contains(RoutingCompiler.Begin) && File.ReadAllText(script).Contains("c.user = true"), "Remove-all preserves user's original script");
-        fake.Offline = true; engine.Update(Draft("直连")); Wait(engine.FlushAsync()); check(File.Exists(intent) && !engine.Status.StartsWith("已生效"), "Offline apply never reports success");
-        var recovered = new AutoRouting(client, settings, intent, () => {}); check(recovered.Desired.Applications.Count == 1 && recovered.Status.Contains("待重试"), "Pending intent restored without automatic network mutation"); recovered.Stop();
+        fake.Offline = true; engine.Update(Draft("直连")); Wait(engine.FlushAsync()); check(File.Exists(intent) && engine.StateCode!="applied", "Offline apply never reports success");
+        var recovered = new AutoRouting(client, settings, intent, () => {}); check(recovered.Desired.Applications.Count == 1 && recovered.StateCode=="saved", "Pending intent restored without automatic network mutation"); recovered.Stop();
         engine.Stop(); fake.Offline = false;
         var targets = client.GetTargetsAsync(); Wait(targets);
         check(targets.Result.Single(x=>x.Name=="other").Delay == null, "Missing history is untested, never timeout");

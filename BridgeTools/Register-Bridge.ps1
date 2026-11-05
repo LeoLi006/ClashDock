@@ -1,6 +1,7 @@
 ﻿#requires -Version 5.1
 [CmdletBinding(SupportsShouldProcess)]
-param([string]$InstallDirectory)
+param([string]$InstallDirectory, [switch]$Utf8Output)
+if ($Utf8Output) { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) }
 if ([string]::IsNullOrWhiteSpace($InstallDirectory)) { $InstallDirectory = [System.IO.Path]::GetDirectoryName($PSScriptRoot) }
 $ErrorActionPreference = 'Stop'
 $install = (Resolve-Path -LiteralPath $InstallDirectory).Path

@@ -32,7 +32,7 @@ public sealed partial class MihomoClient
         return result;
     }
 }
-public sealed record Inspection(bool Connected,string Mode,bool? RulesAccepted,string Intent,bool Paused,bool AppliedPaused,long Revision,string Conclusion,string Next);
+public sealed record Inspection(bool Connected,string Mode,bool? RulesAccepted,string Intent,bool Paused,bool AppliedPaused,long Revision,string Conclusion,string Next,string ProblemCode="unknown",DateTimeOffset? CheckedAt=null);
 public sealed class RoutingInspector(MihomoClient client,AutoRouting engine)
 {
     public async Task<Inspection> VerifyAsync(string target,bool app,CancellationToken ct) {
@@ -41,12 +41,38 @@ public sealed class RoutingInspector(MihomoClient client,AutoRouting engine)
         try {
             var network=await client.GetNetworkAsync(ct);var rules=await client.GetRuleSequenceAsync(ct);ct.ThrowIfCancellationRequested();
             bool? accepted=RoutingCompiler.RulesConfirmed(applied,rules);
-            if(accepted==true && RoutingCompiler.Rules(applied).Any(r=>r.EndsWith(","+RoutingCompiler.ProxyGroup,StringComparison.Ordinal))) accepted=(await client.GetSelectorGroupsAsync()).Any(g=>g.Name==RoutingCompiler.ProxyGroup&&g.Now==applied.Proxy);
+            bool proxyNeeded=RoutingCompiler.Rules(desired).Any(r=>r.EndsWith(","+RoutingCompiler.ProxyGroup,StringComparison.Ordinal));
+            bool targetMissing=proxyNeeded && !(await client.GetProxyNamesAsync()).Contains(desired.Proxy);
+            bool selectionMismatch=false;
+            if(accepted==true) {
+                var required=RoutingCompiler.Groups(RoutingCompiler.Rules(applied),applied.Proxy);
+                if(required.Count>0) {
+                    var groups=await client.GetSelectorGroupsAsync();
+                    selectionMismatch=required.Any(g=>!groups.Any(x=>x.Name==(string)g["name"] && x.Now==((string[])g["proxies"])[0]));
+                    if(selectionMismatch)accepted=false;
+                }
+            }
             ct.ThrowIfCancellationRequested();if(revision!=engine.Revision)accepted=null;
-            string conclusion=accepted==null?"配置意图在核验期间变化，请重新核验":accepted==false?"托管配置被覆盖或尚未被内核接受":engine.AppliedPaused?"托管规则已撤下（暂停）":network.Mode!="rule"&&RoutingCompiler.Rules(applied).Count>0?"规则已加载，但当前不是规则模式":engine.StateCode is "applying" or "retry" or "save_failed"?"已有配置已核验，最新修改尚未确认生效":"规则已加载（不等于已观察到连接）";
-            string next=accepted!=true?"先检查 Verge 的订阅/配置，再回主界面手动重试。":engine.Paused?"如需分流，请在托盘恢复；观察不会替你修改网络。":network.Mode!="rule"?"当前模式可能绕过规则；请在 Verge 核对模式，本窗口不会切换。":"开始观察后刷新网页或操作应用，发起新连接。应用需遵循系统代理或配置 Clash。";
-            return new(true,network.Mode,accepted,intent,engine.Paused,engine.AppliedPaused,revision,conclusion,next);
-        }catch(OperationCanceledException){throw;}catch(Exception e)when(e is HttpRequestException or IOException or InvalidOperationException or JsonException or TaskCanceledException){return new(false,"未知",null,intent,engine.Paused,engine.AppliedPaused,revision,"控制器未连接或核验失败","请先启动 Verge，检查控制器；没有据此宣称规则生效。");}
+            string code=accepted==null?"unknown":targetMissing?"target_missing":selectionMismatch?"target_mismatch":accepted==false?"overwritten":engine.AppliedPaused?"paused":network.Mode!="rule"&&RoutingCompiler.Rules(applied).Count>0?"mode_bypass":"applied";
+            string conclusion=code switch {
+                "unknown"=>"配置意图在核验期间变化，尚待核验",
+                "target_missing"=>"代理目标已失效 · 未自动替换",
+                "target_mismatch"=>"托管策略组缺失或选择已变化",
+                "overwritten"=>"托管规则缺失、顺序或内容变化 · 未自动恢复",
+                "paused"=>"已暂停 · 托管规则已撤下",
+                "mode_bypass"=>"规则已加载，但当前模式不按规则分流",
+                _=>"规则已加载 · 未验证实际出口"
+            };
+            string next=code switch {
+                "target_missing"=>"在 ClashDock 主界面重新选择代理目标。",
+                "mode_bypass"=>"请在 Verge 核对运行模式；本工具不会自动切换。",
+                "overwritten" or "target_mismatch"=>"检查 Verge 订阅配置，修复后预览重新应用全部分流。",
+                "paused"=>"如需分流，在托盘恢复；观察不会修改网络。",
+                "unknown"=>"刷新只读核验。",
+                _=>"开始观察后手动刷新网页或操作应用；旧连接可能仍走原路线，不会自动断开连接。"
+            };
+            return new(true,network.Mode,accepted,intent,engine.Paused,engine.AppliedPaused,revision,conclusion,next,code,DateTimeOffset.UtcNow);
+        }catch(OperationCanceledException){throw;}catch(Exception e)when(e is HttpRequestException or IOException or InvalidOperationException or JsonException or TaskCanceledException){return new(false,"未知",null,intent,engine.Paused,engine.AppliedPaused,revision,"控制器未连接或核验失败","请先启动 Verge，检查高级连接配置；核验失败不代表规则生效。","controller_offline",DateTimeOffset.UtcNow);}
     }
 }
 public sealed class ConnectionObserver(MihomoClient client)
@@ -70,6 +96,7 @@ internal sealed class CheckRoutingForm : Form
 {
     readonly RoutingInspector inspector;
     readonly ConnectionObserver observer;
+    readonly AutoRouting engine;
     readonly string target;readonly bool app;
     readonly CancellationTokenSource life=new();CancellationTokenSource? observing;int generation;bool released;
     readonly Label summary=new(){Dock=DockStyle.Top,AutoSize=true,ForeColor=Theme.Text};
@@ -78,21 +105,21 @@ internal sealed class CheckRoutingForm : Form
     readonly PillButton stop=new(){Text="停止",Outline=true,AutoSize=true,Enabled=false};
     string configText="正在只读核验…",observed="尚未检测到 · 尚未开始观察";Inspection? last;
     public CheckRoutingForm(MihomoClient client,AutoRouting engine,string target,bool app) {
-        this.target=target;this.app=app;inspector=new(client,engine);observer=new(client);Text="检查分流 · "+(app?Path.GetFileNameWithoutExtension(target):target);Font=Theme.Body;ClientSize=new(1000,680);MinimumSize=new(840,560);UiStyle.Window(this);Padding=new(24);StartPosition=FormStartPosition.CenterParent;
+        this.target=target;this.app=app;this.engine=engine;inspector=new(client,engine);observer=new(client);Text="检查分流 · "+(app?Path.GetFileNameWithoutExtension(target):target);Font=Theme.Body;ClientSize=new(1000,680);MinimumSize=new(840,560);UiStyle.Window(this);Padding=new(24);StartPosition=FormStartPosition.CenterParent;
         var layout=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=3,ColumnCount=1};layout.RowStyles.Add(new(SizeType.AutoSize));layout.RowStyles.Add(new(SizeType.Percent,100));layout.RowStyles.Add(new(SizeType.Absolute,180));
-        var bar=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true};var verify=new PillButton{Text="重新核验",Outline=true,AutoSize=true};var expand=new CheckBox{Text="展开原始详情",AutoSize=true,ForeColor=Theme.SubText,Padding=new(6,10,0,0)};
+        var bar=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true};var verify=new PillButton{Text="重新核验",Outline=true,AutoSize=true};var expand=new CheckBox{Text="进程／域名／规则／链路详情",AutoSize=true,ForeColor=Theme.SubText,Padding=new(6,10,0,0)};
         bar.Controls.AddRange([verify,start,stop,expand]);layout.Controls.Add(bar,0,0);var summaryHost=new Panel{Dock=DockStyle.Fill,AutoScroll=true};summaryHost.Controls.Add(summary);summaryHost.Resize+=(_,_)=>summary.MaximumSize=new Size(Math.Max(100,summaryHost.ClientSize.Width-24),0);layout.Controls.Add(summaryHost,0,1);layout.Controls.Add(details,0,2);layout.RowStyles[2].Height=0;
         expand.CheckedChanged+=(_,_)=>{details.Visible=expand.Checked;layout.RowStyles[2].Height=expand.Checked?180:0;};Controls.Add(layout);
         verify.Click+=async(_,_)=>await VerifyAsync();start.Click+=async(_,_)=>await ObserveAsync();stop.Click+=(_,_)=>StopObservation();Shown+=async(_,_)=>await VerifyAsync();
         KeyPreview=true;KeyDown+=(_,e)=>{if(e.KeyCode==Keys.Escape)Close();};Render();
     }
-    async Task VerifyAsync(){StopObservation();int current=++generation;try{var result=await inspector.VerifyAsync(target,app,life.Token);if(released||current!=generation)return;last=result;configText=$"控制器：{(result.Connected?"已连接":"未连接／核验失败")}    运行模式：{result.Mode}\n当前意图：{result.Intent}    暂停意图：{(result.Paused?"是":"否")}    已确认暂停：{(result.AppliedPaused?"是":"否")}\n\n{result.Conclusion}";Render();}catch(OperationCanceledException){}}
+    async Task VerifyAsync(){StopObservation();int current=++generation;try{var result=await inspector.VerifyAsync(target,app,life.Token);if(released||current!=generation)return;last=result;var view=RoutingState.Describe(engine,result);configText=$"{view.Message}\n下一步：{view.Next}\n\n控制器：{(result.Connected?"已连接":"未连接／核验失败")}    运行模式：{result.Mode}\n当前意图：{result.Intent}    暂停意图：{(result.Paused?"是":"否")}    已确认暂停：{(result.AppliedPaused?"是":"否")}\n托管规则：{(result.RulesAccepted==true?"已加载（未验证实际出口）":result.RulesAccepted==false?"未通过核验":"尚待核验")}\n最近核验：{result.CheckedAt?.ToLocalTime():HH:mm:ss}";Render();}catch(OperationCanceledException){}}
     async Task ObserveAsync(){StopObservation();observing=CancellationTokenSource.CreateLinkedTokenSource(life.Token);var request=observing;int current=++generation;start.Enabled=false;stop.Enabled=true;observed="正在观察 15 秒 · 请刷新网页或操作应用";Render();
         try{await observer.ObserveAsync(target,app,TimeSpan.FromSeconds(15),()=>{if(!released&&current==generation){observed=$"正在观察 · 精确匹配 {observer.Records.Count(r=>r.Match=="exact")} 条；名称候选 {observer.Records.Count(r=>r.Match=="candidate")} 条";Render();}},request.Token);if(!released&&current==generation){observed=observer.Records.Count==0?"尚未检测到匹配连接（不等于未联网或已生效）":$"已观察到：精确匹配 {observer.Records.Count(r=>r.Match=="exact")} 条；名称候选 {observer.Records.Count(r=>r.Match=="candidate")} 条（未精确确认）";Render();}}
         catch(OperationCanceledException){}catch(Exception){if(!released&&current==generation){observed="观察中断：连接读取失败，保留本次已观察内容。";Render();}}
         finally{if(ReferenceEquals(observing,request)){observing=null;request.Dispose();if(!released){start.Enabled=true;stop.Enabled=false;}}else request.Dispose();}
     }
     void StopObservation(){generation++;observing?.Cancel();observing=null;if(!released){start.Enabled=true;stop.Enabled=false;observed=observer.Records.Count==0?"尚未检测到 · 已停止观察":$"已停止 · 保留 {observer.Records.Count} 条本次记录";Render();}}
-    void Render(){if(released)return;summary.Text=configText+"\n\n"+observed+"\n\n下一步："+(last?.Next??"等待配置核验。")+"\n\n连接采样有时间间隔，极短连接可能错过。链路名称不是公网出口 IP；不会访问外部 IP 查询服务。";details.Text=string.Join("\n\n",observer.Records.Select(r=>(r.Match=="candidate"?"名称候选 · 未精确确认\n":"精确匹配\n")+r.Row.Details)).Replace("\n","\r\n");}
+    void Render(){if(released)return;summary.Text=configText+"\n\n"+observed+"\n\n连接采样有时间间隔，极短连接可能错过。链路名称不是公网出口 IP；不会访问外部 IP 查询服务。";details.Text=string.Join("\n\n",observer.Records.Select(r=>(r.Match=="candidate"?"名称候选 · 未精确确认\n":"精确匹配\n")+r.Row.Details)).Replace("\n","\r\n");}
     protected override void Dispose(bool disposing){if(disposing&&!released){released=true;generation++;observing?.Cancel();life.Cancel();observer.Clear();details.Text="";life.Dispose();}base.Dispose(disposing);}
 }

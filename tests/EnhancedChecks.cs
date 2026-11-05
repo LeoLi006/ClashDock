@@ -55,14 +55,14 @@ internal static class EnhancedChecks
             BridgeReply Send(BridgeRequest r)=>Result(dispatcher.HandleAsync(new(BridgeProtocol.Origin,r),CancellationToken.None));
             check(Send(Request("state")).Ok,"Extension reads shared desktop state with read-only verification");
             var first=Request("setSite","直连");var response=Send(first);long revision=engine.Revision;
-            check(response.Ok&&response.Data!.Value.GetProperty("state").GetString()=="applying","Extension mutation acknowledges queued intent, not premature success");
+            check(response.Ok&&response.Data!.Value.GetProperty("state").GetString()=="waiting","Extension mutation acknowledges queued intent, not premature success");
             check(Field<DataGridView>(form,"_sites").Rows.Cast<DataGridViewRow>().Any(r=>r.Cells[0].Value?.ToString()=="video.example.com"),"Extension update synchronizes desktop website controls");
             check(Send(first).Ok&&engine.Revision==revision,"Duplicate native request does not execute twice");
             first.Mode="代理";check(Send(first).Code=="duplicate_conflict"&&engine.Revision==revision,"Reused request ID with changed content rejected");
             Send(Request("setSite","代理"));Send(Request("setSite","自动"));Wait(engine.FlushAsync());check(engine.Desired.Websites.Single().Mode=="自动"&&engine.StateCode=="applied","Rapid extension changes share serial last-intent queue");
             var local=AutoRouting.Copy(engine.Desired);local.Websites[0].Mode="直连";engine.Update(local);Wait(engine.FlushAsync());check(Send(Request("state")).Data!.Value.GetProperty("mode").GetString()=="直连","Desktop edits synchronize into next extension state");
             fake.Reject=true;Send(Request("setSite","代理"));Wait(engine.FlushAsync());check(Send(Request("state")).Data!.Value.GetProperty("state").GetString()=="retry","Controller rejection is visible as retry, never green success");
-            Send(Request("retry"));Wait(engine.FlushAsync());check(engine.StateCode=="applied","Extension explicit retry uses same application executor");
+            var confirmedRetry=Request("retry");confirmedRetry.ConfirmAll=true;Send(confirmedRetry);Wait(engine.FlushAsync());check(engine.StateCode=="applied","Extension explicit retry uses same application executor");
             var conflict=Request("setSite");conflict.BaseRevision=0;check(Send(conflict).Code=="conflict","Stale base revision cannot replace newer desktop edit");
             var old=Request("setSite");old.Sequence=1;check(Send(old).Code=="stale_sequence","Older popup sequence cannot replace latest choice");
             var stale=Request("setSite");stale.Session=Guid.NewGuid().ToString("N");check(Send(stale).Code=="session_changed","Desktop restart session invalidates old mutation");

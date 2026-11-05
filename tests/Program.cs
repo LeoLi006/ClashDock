@@ -23,6 +23,7 @@ internal static class Checks
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Contains("--reliability-only")) { ReliabilityChecks.Run(Check); return; }
         if (args.Contains("--subscription-only")) { SubscriptionChecks.Run(Check); return; }
         var draft = new RoutingSettings
         {
@@ -84,7 +85,7 @@ internal static class Checks
             Application.DoEvents();
             var root = form.Controls.OfType<TableLayoutPanel>().Single();
             IEnumerable<Control> Descendants(Control parent) { foreach (Control child in parent.Controls) { yield return child; foreach (var nested in Descendants(child)) yield return nested; } }
-            var apply = Descendants(root).OfType<Button>().Single(b => b.Text == "重试应用");
+            var apply = Descendants(root).OfType<Button>().Single(b => b.Text == "重新应用全部分流");
             Check(form.RectangleToScreen(form.ClientRectangle).Contains(apply.RectangleToScreen(apply.ClientRectangle)), "Apply button fits visible client area");
             using var image = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));

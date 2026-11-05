@@ -17,7 +17,7 @@ public sealed class RoutingForm : Form
     private readonly ModernSelect _proxy = new() { Width = 320 };
     private readonly TextBox _directory = new() { Width = 420 };
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(850, 0), Padding = new Padding(0, 6, 0, 0) };
-    private readonly PillButton _apply = new() { Text = "重试应用", AutoSize = true };
+    private readonly PillButton _apply = new() { Text = "重新应用全部分流", AutoSize = true };
     private readonly CancellationTokenSource _catalogLife = new();
     private HashSet<string>? _availableTargets;
     private readonly Dictionary<string, Image> _appIcons = new(StringComparer.OrdinalIgnoreCase);
@@ -121,12 +121,13 @@ public sealed class RoutingForm : Form
         // PerformClick is ignored before a form is visible; establish initial state explicitly.
         appPage.Visible = true; sitePage.Visible = options.Visible = false; appPage.BringToFront(); navButtons[0].Accent = true;
 
+        int retryWidth = Math.Max(220, TextRenderer.MeasureText("重新应用全部分流", Theme.Body).Width + 48);
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 14, 0, 0) };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 148));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, retryWidth));
         _status.AutoSize = false; _status.MaximumSize = Size.Empty; _status.Dock = DockStyle.Fill; _status.Padding = new Padding(0, 4, 16, 0); _status.Font = Theme.Small; _status.ForeColor = Theme.SubText;
         _status.Text = "连接就绪后，添加应用或网站，选择路由方式后自动保存并应用。"; _status.AutoEllipsis = true;
         footer.Controls.Add(_status, 0, 0);
-        _apply.Accent = true; _apply.SurfaceColor = Theme.Bg; _apply.AutoSize = false; _apply.Size = new Size(148, Math.Max(42, TextRenderer.MeasureText("Ag", Theme.Body).Height + 18)); _apply.Anchor = AnchorStyles.Right | AnchorStyles.Top; _apply.Margin = Padding.Empty;
+        _apply.Accent = true; _apply.SurfaceColor = Theme.Bg; _apply.AutoSize = false; _apply.Size = new Size(retryWidth, Math.Max(42, TextRenderer.MeasureText("Ag", Theme.Body).Height + 18)); _apply.Anchor = AnchorStyles.Right | AnchorStyles.Top; _apply.Margin = Padding.Empty;
         _apply.Click += async (_, _) => await ApplyAsync(); footer.Controls.Add(_apply, 1, 0); root.Controls.Add(footer, 0, 4);
         _status.Cursor = Cursors.Hand; _status.AccessibleName = "操作结果，点击查看完整详情";
         _status.Click += (_, _) => NetworkConfirmation.ShowDetails(this, _status.Text);
@@ -150,7 +151,7 @@ public sealed class RoutingForm : Form
         FormClosing += (_, e) => { CommitPendingEdit(); };
     }
     public void CommitPendingEdit() { _apps.EndEdit(); _sites.EndEdit(); }
-    private void EngineChanged() { if (!_selfChange && _renderedRevision != _engine.Revision && !IsDisposed) SyncIntent(); _renderedRevision = _engine.Revision; if (IsDisposed) return; _status.Text = _engine.Status + (_availableTargets != null && _proxy.SelectedItem is string selected && selected.Length > 0 && !_availableTargets.Contains(selected) ? "\n所选目标已失效，请在上方重新选择代理目标修复。" : ""); _status.ForeColor = _engine.Status.Contains("失败") || _engine.Status.Contains("覆盖") ? Theme.Err : Theme.SubText; _apps.Invalidate(); }
+    private void EngineChanged() { if (!_selfChange && _renderedRevision != _engine.Revision && !IsDisposed) SyncIntent(); _renderedRevision = _engine.Revision; if (IsDisposed) return; _status.Text = _engine.Status + (_availableTargets != null && _proxy.SelectedItem is string selected && selected.Length > 0 && !_availableTargets.Contains(selected) ? "\n所选目标已失效，请在上方重新选择代理目标修复。" : ""); _status.ForeColor = _engine.StateCode is "retry" or "save_failed" or "overwritten" or "target_missing" or "target_mismatch" or "controller_offline" or "mode_bypass" ? Theme.Err : Theme.SubText; _apps.Invalidate(); }
 
     private void SyncIntent()
     {
@@ -275,7 +276,7 @@ public sealed class RoutingForm : Form
         var browse = new PillButton { Text = "选择文件夹", Outline = true, SurfaceColor = Theme.Card, Margin = new Padding(0, 12, 0, 22) };
         browse.Click += (_, _) => { using var dlg = new FolderBrowserDialog { InitialDirectory = _directory.Text }; if (dlg.ShowDialog(this) == DialogResult.OK) _directory.Text = dlg.SelectedPath; };
         content.Controls.Add(browse);
-        var help = new Label { AutoSize = true, MaximumSize = new Size(600, 0), Font = Theme.Small, ForeColor = Theme.SubText, Text = "三种路由方式\n\n默认   采用未单设应用的默认行为。\n自动   明确沿用订阅规则（不受默认直连影响）。\n直连   不经过代理节点。\n代理   使用上方选择的节点或策略组。\n\n使用范围\n\n仅处理已进入 Clash 的流量。应用需遵循系统代理，或已配置 Clash 代理；这里不会强制接管软件或管理虚拟网卡。\n\n网站按域名及子域名匹配，网站规则优先于应用规则。网页引用的其他域名需另行设置。\n\n修改后自动备份并更新 Verge 全局扩展脚本，切换到规则模式。现有长连接可能需要重连。将条目设为自动或移除后即可撤销对应规则。" };
+        var help = new Label { AutoSize = true, MaximumSize = new Size(600, 0), Font = Theme.Small, ForeColor = Theme.SubText, Text = "三种路由方式\n\n默认   采用未单设应用的默认行为。\n自动   明确沿用订阅规则（不受默认直连影响）。\n直连   不经过代理节点。\n代理   使用上方选择的节点或策略组。\n\n使用范围\n\n仅处理已进入 Clash 的流量。应用需遵循系统代理，或已配置 Clash 代理；这里不会强制接管软件或管理虚拟网卡。\n\n网站按域名及子域名匹配，网站规则优先于应用规则。网页引用的其他域名需另行设置。\n\n修改后自动备份并更新 Verge 全局扩展脚本，不自动切换运行模式；请自行在 Verge 核对规则模式。现有长连接可能需要重连。将条目设为自动或移除后即可撤销对应规则。" };
         content.Controls.Add(help);
         var advanced = new PillButton { Text = "高级连接配置…", Outline = true, SurfaceColor = Theme.Card, Margin = new Padding(0, 20, 0, 12) };
         advanced.Click += (_, _) => { if (!_preview) { AdvancedConnection.Show(this, _settings); _status.Text = "连接配置如有更改，重启 ClashDock 后使用；未更改网络规则。"; } };
@@ -284,7 +285,9 @@ public sealed class RoutingForm : Form
             maintenance.Click += (_, _) => { if (_preview) return; if (!NetworkConfirmation.Ask(this, label + "：仅修改 ClashDock 管理的规则，保留订阅与用户脚本。")) return; try { if (label.StartsWith("撤销")) _engine.Undo(); else _engine.RemoveAll(); Close(); } catch (Exception e) { Error(e.Message); } };
             content.Controls.Add(maintenance);
         }
-        content.Controls.Add(advanced); page.Controls.Add(content);
+        var bridge = new PillButton { Text = "Edge 通信桥检查／注册…", Outline = true, AutoSize = true };
+        bridge.Click += (_, _) => { if (!_preview) BridgeHealth.Show(this); };
+        content.Controls.Add(bridge); content.Controls.Add(advanced); page.Controls.Add(content);
         page.Resize += (_, _) => { int width = Math.Max(150, page.ClientSize.Width - page.Padding.Horizontal - 20); _directory.Width = width; _defaultBehavior.Width = width; help.MaximumSize = new Size(width, 0); };
         return page;
     }
@@ -448,7 +451,7 @@ public sealed class RoutingForm : Form
         RenderTargets(_proxy.SelectedItem ?? _engine.Desired.Proxy); await RefreshNetworkAsync(); if(!_dirty) EngineChanged();
     }
 
-    private Task ApplyAsync() { if (!_preview) { CommitPendingEdit(); _engine.Retry(); } return Task.CompletedTask; }
+    private Task ApplyAsync() { if (!_preview) { CommitPendingEdit(); if (MessageBox.Show(this, RoutingState.RetryScope(_engine.Desired,_engine.Paused), "重新应用全部分流", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning)==DialogResult.OK) _engine.Retry(); } return Task.CompletedTask; }
 
     private List<RouteEntry> Entries(DataGridView grid) => grid.Rows.Cast<DataGridViewRow>()
         .Where(r => grid != _apps || r.Cells[1].Value?.ToString() != "默认")

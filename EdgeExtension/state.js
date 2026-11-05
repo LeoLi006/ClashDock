@@ -15,5 +15,12 @@
   }
   close(){this.closed=true;for(const r of this.pending.values()){clearTimeout(r.timer);r.reject(Error('closed'))}this.pending.clear();const p=this.port;this.port=null;p?.disconnect();}
  }
- const api={Channel,siteFromUrl};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ClashDockUI=api;
+ function nativeError(raw){const error=String(raw||'连接失败').slice(0,300);let hint='在桌面设置中检查通信桥；不要盲目重启浏览器。';
+  if(/not found|not registered/i.test(error))hint='Edge 未找到宿主清单。到桌面设置检查 EXE、清单和当前用户注册路径。';
+  else if(/forbidden|not allowed/i.test(error))hint='扩展来源或浏览器策略拒绝访问；核对固定 ID，勿更改安全策略绕过。';
+  else if(/exited|failed to start/i.test(error))hint='宿主启动失败或提前退出；检查桥 EXE 是否完整及执行权限。';
+  else if(/timeout/i.test(error))hint='请求超时，结果未确认；只读刷新，不自动重放修改。';
+  return hint+' 原始错误：'+error;
+ }
+ const api={Channel,siteFromUrl,nativeError};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ClashDockUI=api;
 })(globalThis);
