@@ -18,6 +18,7 @@ main{max-width:1100px;margin:26px auto 60px;background:#fff;padding:32px 48px 48
 <li>打开解压后的文件夹，双击 <strong><code>ClashDock.exe</code></strong>。不需要安装 .NET 或开发工具。</li>
 </ol>
 <p><strong>不要下载 <code>Source code (zip)</code> 当成软件，也不要在压缩包内直接运行 EXE。</strong> 本版本面向 Windows 10 / 11 的 x64 电脑，不提供原生 ARM64 构建。</p>
+<p>可选校验：同时下载发布页的 <code>SHA256SUMS.txt</code>，在 PowerShell 运行 <code>Get-FileHash .\ClashDock-1.2.0-win-x64.zip -Algorithm SHA256</code>，与清单中 ZIP 同名一行核对。大小写无关；不一致时停止运行并重新下载。无需为校验安装额外软件。</p>
 <table>
 <thead>
 <tr>

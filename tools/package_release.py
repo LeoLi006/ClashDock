@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument('--desktop', type=Path, required=True)
 p.add_argument('--bridge', type=Path, required=True)
+p.add_argument('--binary-source-commit', default=None)
 p.add_argument('--output', type=Path, default=ROOT / 'artifacts/release-v1.2.0')
 args = p.parse_args()
 out = args.output.resolve()
@@ -63,7 +64,10 @@ routing-intent.json.undo 与 ui-preferences.json，先从托盘退出旧程序�
 反馈：https://github.com/LeoLi006/ClashDock/issues
 ''', encoding='utf-8-sig')
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-(folder / 'BUILD_INFO.txt').write_text('ClashDock 1.2.0\nPlatform: win-x64, self-contained\nSource commit: ' + commit + '\nTag: v1.2.0\nPersonal settings: not included\n', encoding='utf-8')
+binary_commit = args.binary_source_commit or commit
+changed = subprocess.check_output(['git','diff','--name-only',binary_commit,'HEAD','--','*.cs','*.csproj','app.manifest'],cwd=ROOT,text=True)
+if changed.strip(): raise SystemExit('Runtime sources changed after binary build; rebuild before packaging')
+(folder / 'BUILD_INFO.txt').write_text('ClashDock 1.2.0\nPlatform: win-x64, self-contained\nSource commit: ' + commit + '\nBinary source commit: ' + binary_commit + '\nTag: v1.2.0\nPersonal settings: not included\n', encoding='utf-8')
 allowed_top = {'ClashDock.exe','ClashDock.Bridge.exe','README.md','使用说明.md','使用手册.html','EDGE_EXTENSION.md','DEVELOPMENT.md','VALIDATION.md','THIRD_PARTY_NOTICES.md','CHANGELOG.md','LICENSE.txt','ThirdPartyNotices.txt','开始使用.txt','BUILD_INFO.txt','SHA256SUMS.txt'}
 allowed_children = {f'{directory}/{file}' for directory, names in public_assets.items() for file in names} | {'docs/images/edge-popup.png', 'licenses/WindowsDesktop-LICENSE.txt'}
 files = sorted(x for x in folder.rglob('*') if x.is_file())
