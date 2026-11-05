@@ -1,13 +1,14 @@
 ﻿#requires -Version 5.1
 [CmdletBinding(SupportsShouldProcess)]
-param([string]$InstallDirectory = (Split-Path $PSScriptRoot -Parent))
+param([string]$InstallDirectory)
+if ([string]::IsNullOrWhiteSpace($InstallDirectory)) { $InstallDirectory = [System.IO.Path]::GetDirectoryName($PSScriptRoot) }
 $ErrorActionPreference = 'Stop'
 $install = (Resolve-Path -LiteralPath $InstallDirectory).Path
 $bridge = Join-Path $install 'ClashDock.Bridge.exe'
 $desktop = Join-Path $install 'ClashDock.exe'
 $extension = Join-Path $install 'EdgeExtension\manifest.json'
 foreach ($file in @($bridge,$desktop,$extension)) { if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw '请指定包含两个 EXE 和 EdgeExtension 的完整发布目录。' } }
-$manifest = Get-Content -LiteralPath $extension -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath $extension -Raw -Encoding UTF8 | ConvertFrom-Json
 $bytes = [Convert]::FromBase64String($manifest.key)
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $hash = $sha.ComputeHash($bytes)
@@ -20,7 +21,7 @@ $key = 'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.clashdock.bridge'
 $hadKey = Test-Path -LiteralPath $key
 $previous = if ($hadKey) { (Get-Item -LiteralPath $key).GetValue('') } else { $null }
 if ($previous -and $previous -ne $file) { throw '已注册其他目录的 ClashDock 通信桥。请先从原目录卸载注册。' }
-$oldText = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file -Raw } else { $null }
+$oldText = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file -Raw -Encoding UTF8 } else { $null }
 if ($PSCmdlet.ShouldProcess('当前用户 Edge NativeMessagingHosts/com.clashdock.bridge', '写入固定扩展通信桥清单与注册项（不安装扩展、不改安全策略）')) {
  try {
   New-Item -ItemType Directory -Path $folder -Force | Out-Null
