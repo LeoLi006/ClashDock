@@ -1,0 +1,352 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'"><title>ClashDock v1.2.0 · 使用手册</title><style>
+:root{color-scheme:light;--ink:#18243b;--muted:#586981;--line:#dce4ef;--blue:#2068df}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);background:#edf2f8;font:16px/1.8 "Segoe UI","Microsoft YaHei UI",sans-serif}
+.hero{background:#111b2e;color:#fff;padding:42px max(24px,calc((100vw - 1040px)/2)) 32px}.hero small{color:#85b2ff;letter-spacing:.15em}.hero strong{display:block;font-size:36px;line-height:1.3;margin:8px 0}.hero p{color:#bccbe0;margin:8px 0}
+main{max-width:1100px;margin:26px auto 60px;background:#fff;padding:32px 48px 48px;border-radius:16px;box-shadow:0 8px 35px #172e4d0b}h1{font-size:26px;line-height:1.4;margin-top:0}h2{font-size:24px;border-top:1px solid var(--line);padding-top:28px;margin-top:38px;line-height:1.5}h3{font-size:19px;margin-top:26px}a{color:var(--blue);text-underline-offset:3px;overflow-wrap:anywhere}p,li{overflow-wrap:anywhere}li{margin:6px 0}code{font:14px/1.7 Consolas,monospace;background:#f0f4fa;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{background:#111b2e;color:#dce9ff;padding:16px;border-radius:8px;overflow:auto}pre code{background:none;padding:0}table{width:100%;border-collapse:collapse;font-size:15px;margin:18px 0}th,td{text-align:left;padding:11px 13px;border:1px solid var(--line);vertical-align:top}th{background:#eff5ff;color:#203a64}tr:nth-child(even){background:#fafcff}blockquote{border-left:4px solid var(--blue);margin:16px 0;padding:10px 18px;background:#eff5ff}details{padding:14px 16px;border:1px solid var(--line);border-radius:9px;margin:20px 0}summary{cursor:pointer;font-weight:600}.screenshot{height:420px;max-width:360px;overflow:hidden;margin:16px auto;border-radius:8px}.screenshot img{width:360px;max-width:100%;height:auto;display:block}.end{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:20px;margin-top:40px}strong{font-weight:650}
+@media(max-width:700px){.hero{padding:28px 18px}.hero strong{font-size:30px}main{margin:12px;padding:22px 18px;border-radius:10px}h2{font-size:21px}table{font-size:13px}th,td{padding:8px}}
+@media print{body{background:#fff;font-size:11pt}.hero{background:#fff;color:#111;padding:12px}.hero p,.hero small{color:#333}main{box-shadow:none;padding:0;margin:0;max-width:none}h2{break-after:avoid}tr{break-inside:avoid}details{display:none}a{color:#111}.end{margin-top:20px}}
+</style></head><body><header class="hero"><small>CLASHDOCK · USER GUIDE</small><strong>下载之后，照着用就行。</strong><p>v1.2.0 · Windows x64 · 从第一次打开到日常排查</p></header><main><h1 id="clashdock-v120">ClashDock v1.2.0 使用手册</h1>
+<p><strong>适用对象：只想下载使用、不需要了解代码的用户。</strong></p>
+<p>ClashDock 帮你给常用应用和网站选择“自动、直连、代理”。它使用你电脑上已运行的 Clash Verge / Mihomo，不附带节点、订阅，也不是独立 VPN。设置只对已经进入 Clash 的流量有效。</p>
+<p><a href="#download">下载与解压</a> · <a href="#start">三分钟开始</a> · <a href="#map">按钮在哪里</a> · <a href="#apps">应用</a> · <a href="#sites">网站</a> · <a href="#edge">Edge 扩展</a> · <a href="#status">看懂状态</a> · <a href="#inspect">检查分流</a> · <a href="#faq">常见问题</a> · <a href="#maintenance">更新与卸载</a></p>
+<p><a id="download"></a></p>
+<h2 id="1">1. 下载与解压</h2>
+<ol>
+<li>打开 <a href="https://github.com/LeoLi006/ClashDock/releases/tag/v1.2.0">v1.2.0 正式发布页</a>。</li>
+<li>在 <strong>Assets（附件）</strong> 下载 <strong><code>ClashDock-1.2.0-win-x64.zip</code></strong>。这是可以直接使用的便携包。</li>
+<li>右键 ZIP → <strong>全部解压缩</strong>，放在你准备长期保留、能够写入的目录。</li>
+<li>打开解压后的文件夹，双击 <strong><code>ClashDock.exe</code></strong>。不需要安装 .NET 或开发工具。</li>
+</ol>
+<p><strong>不要下载 <code>Source code (zip)</code> 当成软件，也不要在压缩包内直接运行 EXE。</strong> 本版本面向 Windows 10 / 11 的 x64 电脑，不提供原生 ARM64 构建。</p>
+<table>
+<thead>
+<tr>
+<th>解压后看到的内容</th>
+<th>是否需要操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ClashDock.exe</code></td>
+<td>主程序，双击打开</td>
+</tr>
+<tr>
+<td><code>ClashDock.Bridge.exe</code></td>
+<td>Edge 通信桥，不要单独双击</td>
+</tr>
+<tr>
+<td><code>EdgeExtension</code></td>
+<td>Edge 加载扩展时选择这个文件夹</td>
+</tr>
+<tr>
+<td><code>BridgeTools</code></td>
+<td>通信桥维护脚本；普通用户优先用桌面内的注册入口</td>
+</tr>
+<tr>
+<td><code>使用手册.html</code></td>
+<td>离线手册，双击在浏览器阅读</td>
+</tr>
+<tr>
+<td><code>开始使用.txt</code></td>
+<td>最简上手步骤</td>
+</tr>
+<tr>
+<td>许可证、校验清单和其他说明</td>
+<td>保留即可</td>
+</tr>
+</tbody>
+</table>
+<p>Windows 如果提示无法验证发布者，本版本没有商业代码签名证书。请先核对下载来源及 SHA-256；不要关闭系统防护或绕过单位策略，不确定时停止运行。</p>
+<p><a id="start"></a></p>
+<h2 id="2">2. 三分钟开始</h2>
+<h3 id="verge">第一步：准备好 Verge</h3>
+<p>先打开 Clash Verge / Clash Verge Rev，确保已有可用订阅或节点。建议使用支持全局扩展脚本的 Clash Verge Rev。ClashDock 默认自动读取其本机连接配置，一般不用填写端口、密钥或程序路径。</p>
+<p><strong>请在 Verge 自行选择“规则（Rule）”模式。</strong> 全局（Global）模式不会按网站直连规则分流；ClashDock 不替你切换运行模式、系统代理或 TUN。</p>
+<p>应用流量需要已经通过系统代理、应用自身代理设置或你自行配置的其他方式进入 Clash；ClashDock 不强制接管未使用代理的软件。</p>
+<h3 id="_1">第二步：给一个常用应用设置模式</h3>
+<p>打开 ClashDock → 左侧 <strong>应用规则</strong> → 搜索应用名 → 在右侧模式中选择 <strong>直连</strong> 或 <strong>代理</strong>。选择代理前，先在窗口上方选好代理目标。</p>
+<p>修改会自动保存，短暂等待后串行应用，<strong>不用每天点“重新应用全部分流”</strong>。添加、删除和修改目标也可能影响实际分流，请在确认需求后操作。</p>
+<h3 id="_2">第三步：看结果</h3>
+<p>等待底部显示 <strong>规则已加载</strong>。这说明规则和相关策略组已被内核接受，<strong>不等于已测出公网出口</strong>。</p>
+<p>如果要进一步确认，选中该条目 → <strong>检查分流</strong> → <strong>开始观察 15 秒</strong>，然后手动操作应用或刷新网页。没有检测到连接不代表应用未联网。</p>
+<p><a id="map"></a></p>
+<h2 id="3">3. 按钮在哪里</h2>
+<table>
+<thead>
+<tr>
+<th>想做什么</th>
+<th>从哪里进入</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>设置应用自动／直连／代理</td>
+<td>左侧 <strong>应用规则</strong> → 右侧模式</td>
+</tr>
+<tr>
+<td>找不到应用，重新发现</td>
+<td><strong>应用规则 → 扫描应用</strong></td>
+</tr>
+<tr>
+<td>加入便携程序</td>
+<td><strong>应用规则 → 手动补充</strong>，选择 EXE</td>
+</tr>
+<tr>
+<td>常用应用置顶</td>
+<td>应用名称旁 ☆；或右键应用 → <strong>置顶</strong></td>
+</tr>
+<tr>
+<td>为网站设置分流</td>
+<td>左侧 <strong>网站规则 → 添加网站</strong></td>
+</tr>
+<tr>
+<td>一次添加常用站点资源域名</td>
+<td><strong>网站规则 → 常用站点</strong></td>
+</tr>
+<tr>
+<td>改节点或策略组</td>
+<td>顶部 <strong>代理目标</strong></td>
+</tr>
+<tr>
+<td>看延迟或测速</td>
+<td>顶部 <strong>测速 / 刷新</strong>；或右上 <strong>目标状态</strong></td>
+</tr>
+<tr>
+<td>看真实命中记录</td>
+<td>选中应用／网站 → <strong>检查分流</strong></td>
+</tr>
+<tr>
+<td>检查／注册 Edge 通信桥</td>
+<td><strong>设置与说明 → Edge 通信桥检查／注册…</strong></td>
+</tr>
+<tr>
+<td>处理失败后重新恢复分流</td>
+<td>底部 <strong>重新应用全部分流</strong>，先看预览再确认</td>
+</tr>
+<tr>
+<td>暂时停用本工具的分流</td>
+<td>右下角托盘图标右键 → <strong>暂停分流</strong></td>
+</tr>
+<tr>
+<td>完全退出工具</td>
+<td>托盘右键 → <strong>退出（保留已生效规则）</strong></td>
+</tr>
+</tbody>
+</table>
+<p>关闭主窗口或按 Esc 会回到托盘；再次双击 EXE 可唤起已有窗口。找不到托盘图标时，可展开 Windows 右下角“显示隐藏的图标”。</p>
+<p><a id="apps"></a></p>
+<h2 id="4">4. 应用规则怎么选</h2>
+<table>
+<thead>
+<tr>
+<th>选择</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>默认</td>
+<td>没有单独设置，使用“未单独设置的应用”的默认行为</td>
+</tr>
+<tr>
+<td>自动</td>
+<td>明确沿用订阅规则；即使默认行为改为直连，也排除此应用</td>
+</tr>
+<tr>
+<td>直连</td>
+<td>匹配到且已进入 Clash 的流量使用 DIRECT</td>
+</tr>
+<tr>
+<td>代理</td>
+<td>匹配到的流量使用顶部选择的节点／策略组</td>
+</tr>
+</tbody>
+</table>
+<p><strong>推荐起步：保留“沿用订阅规则”作为默认，只设置少量确有需要的应用和网站。</strong></p>
+<ul>
+<li>搜索支持名称或路径，悬停可看完整路径。搜索、扫描和星标置顶不会改变网络规则。</li>
+<li>☆ / ★ 只保存显示偏好。搜索不匹配时，置顶应用也会隐藏。</li>
+<li><strong>恢复默认</strong>会撤销所选应用的独立设置，并自动应用。</li>
+<li>应用移动或重装后路径可能变化，需要重新补充；第一版置顶不支持拖拽排序。</li>
+</ul>
+<p>“设置与说明 → 未单独设置的应用”可选择“沿用订阅规则”或“未单独设置的应用全部直连”。后一项是较大范围的默认行为变化，第一次使用不必改它。</p>
+<p><a id="sites"></a></p>
+<h2 id="5">5. 网站规则怎么设</h2>
+<ol>
+<li>左侧 <strong>网站规则 → 添加网站</strong>，输入域名或 HTTP/HTTPS 网址。</li>
+<li>为新增条目选择自动、直连或代理。</li>
+<li>等待规则核验；必要时用“检查分流”观察新连接。</li>
+</ol>
+<p>匹配范围是 <strong>输入的域名及其子域名</strong>。例如 <code>example.com</code> 包含 <code>video.example.com</code>，而单设 <code>video.example.com</code> 不会自动扩大到整个 <code>example.com</code>。URL 后面的路径不用于区分规则。</p>
+<p>规则优先顺序：<strong>更具体的网站域名 → 其他网站规则 → 应用规则 → 默认行为／原订阅规则</strong>。同域名的所有标签页共用设置，也会影响其他应用访问该域名。</p>
+<ul>
+<li>双击网站名称可编辑域名；移除条目或改成自动会自动应用撤销。</li>
+<li>“自动”撤销当前域名的覆盖，但仍可能命中你设置的父域名规则。</li>
+<li>一个网页可能请求多个资源域名。只设置主站，不保证它引用的其他域名都走同一路线。</li>
+<li>“常用站点”先预览和编辑域名，再添加。资源域名可能被其他网站共用，不要不看列表就批量改。</li>
+</ul>
+<p><a id="edge"></a></p>
+<h2 id="6-edge">6. 安装 Edge 扩展：只做一次</h2>
+<p>扩展是可选的。不安装也能在桌面设置网站规则。它不控制 Edge 的全局代理，也不能做到同域名不同标签页分别代理。</p>
+<h3 id="61">6.1 注册桌面通信桥</h3>
+<ol>
+<li>保留便携包内两个 EXE、<code>EdgeExtension</code> 和 <code>BridgeTools</code>，不要拆开放。</li>
+<li>打开 ClashDock → <strong>设置与说明 → Edge 通信桥检查／注册…</strong>。</li>
+<li>先看只读检查结果，再点 <strong>注册／修复当前安装</strong>并确认。</li>
+<li>文件、清单、HKCU 和固定来源检查应通过。<strong>安装检查通过还不等于浏览器已连接。</strong></li>
+</ol>
+<p>注册只涉及当前用户和当前安装目录，通常不需要管理员权限。不要更改浏览器安全策略来绕过单位限制。</p>
+<h3 id="62-edge">6.2 在 Edge 加载扩展</h3>
+<ol>
+<li>在 Edge 地址栏打开 <code>edge://extensions</code>。</li>
+<li>开启页面上的 <strong>开发者模式</strong>。</li>
+<li>点击 <strong>加载解压缩的扩展</strong>，选择便携包中的 <strong><code>EdgeExtension</code> 文件夹</strong>，不是整个 ClashDock 文件夹。</li>
+<li>核对扩展 ID 为 <code>opbdfefdnighegepeiffmioofdkkphnk</code>，并把它固定到工具栏。</li>
+<li>打开普通 HTTP/HTTPS 网页，点击工具栏上的 ClashDock 图标。</li>
+</ol>
+<p>如果你无法开启开发者模式或加载扩展，请遵循设备管理策略；不要安装来源不明的替代扩展。扩展不会读取网页正文、密码、表单或完整浏览历史。</p>
+<h3 id="63">6.3 日常使用</h3>
+<ul>
+<li>顶部是当前域名，三个按钮表示保存的选择。</li>
+<li><strong>预期出口</strong>表达你的意图；<strong>规则已加载</strong>表达内核核验结果，二者都不是公网 IP 实测。</li>
+<li>直连时显示“预期出口：直连”。代理节点及延迟放在 <strong>节点详情与网站模板</strong>内，表示“选择代理时使用”。</li>
+<li><strong>手动刷新网页</strong>由你决定；工具默认不刷新，避免丢表单。</li>
+<li><strong>检查分流 ↗</strong>打开桌面只读面板，再由你主动开始短时观察。</li>
+<li>更新便携包后，到 <code>edge://extensions</code> 对 ClashDock 点击 <strong>重新加载</strong>，关闭旧弹窗再打开。</li>
+</ul>
+<details><summary>查看扩展示意图（使用示例域名，不含个人数据）</summary><div class="screenshot"><img src="data:image/png;base64,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AIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAEKIQAIQoBAAhCgFAiEIAUP4fAAD//09FGmgAAAAGSURBVAMA06X+wTts3IcAAAAASUVORK5CYII=" width="360" alt="扩展分别展示已保存选择、预期直连和规则已加载"></div></details>
+
+<p>想用脚本维护安装，或排查固定 ID、来源与注册路径，请看 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/EDGE_EXTENSION.md">扩展安装指南</a>。日常使用无需执行命令。</p>
+<p><a id="status"></a></p>
+<h2 id="7">7. 看懂状态，再决定下一步</h2>
+<table>
+<thead>
+<tr>
+<th>界面状态</th>
+<th>当前能确认什么</th>
+<th>下一步</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>等待应用</td>
+<td>修改已保存，正在防抖或排队</td>
+<td>稍等，不要重复点击</td>
+</tr>
+<tr>
+<td>正在应用</td>
+<td>正在提交并读回核验</td>
+<td>等待结果，可继续修改，最终按最后选择处理</td>
+</tr>
+<tr>
+<td>已保存但未生效</td>
+<td>保存了意图，尚未确认最新修改进入内核</td>
+<td>核对后按需重新应用，不当成成功</td>
+</tr>
+<tr>
+<td>规则已加载</td>
+<td>托管规则及所需策略组已通过核验</td>
+<td>需要时主动观察新连接</td>
+</tr>
+<tr>
+<td>应用失败</td>
+<td>修改未确认生效，选择保留</td>
+<td>点击桌面状态看完整原因，修复后再重试</td>
+</tr>
+<tr>
+<td>保存失败</td>
+<td>未确认落盘，不是已保存</td>
+<td>检查目录写入权限，不要直接删除配置</td>
+</tr>
+<tr>
+<td>控制器未连接</td>
+<td>无法完成当前核验</td>
+<td>先确认 Verge 运行，再检查高级连接</td>
+</tr>
+<tr>
+<td>当前模式不按规则分流</td>
+<td>Global 等模式绕过规则</td>
+<td>在 Verge 自行核对 Rule 模式</td>
+</tr>
+<tr>
+<td>托管规则缺失或变化</td>
+<td>当前配置与预期不符</td>
+<td>先核对 Verge，再预览恢复</td>
+</tr>
+<tr>
+<td>目标失效／策略组变化</td>
+<td>所选目标消失或组被改选</td>
+<td>在顶部重选或核对组选择，不会自动换节点</td>
+</tr>
+<tr>
+<td>已暂停</td>
+<td>本工具的托管规则已撤下</td>
+<td>需要时从托盘恢复</td>
+</tr>
+</tbody>
+</table>
+<p><strong>重新应用全部分流不是“只重试这个网站”。</strong> 点击后会显示应用／网站规则数量、默认行为和影响范围；确认才执行，取消不会应用。可能重载配置并影响连接，不要当刷新按钮反复点。</p>
+<p>桌面重启、扩展重连、过期响应不会自动重放未知结果的修改；工具也不会与 Verge 无限争抢配置。</p>
+<p><a id="inspect"></a></p>
+<h2 id="8">8. 用“检查分流”排查问题</h2>
+<ol>
+<li>在桌面选中应用或网站，点 <strong>检查分流</strong>；Edge 也有入口。</li>
+<li>先看顶部结论和“下一步”，再看控制器、模式、保存意图和托管规则核验。</li>
+<li>要查实际请求时，点 <strong>开始观察 15 秒</strong>。</li>
+<li>在这 15 秒内手动刷新网页，或让应用进行一次联网操作。</li>
+<li>展开 <strong>进程／域名／规则／链路详情</strong>，看是否命中预期规则和 DIRECT／代理组。</li>
+</ol>
+<p>停止或关闭窗口立即取消，不会永久抓取。应用优先按完整路径匹配；缺少路径时仅列“名称候选，未精确确认”。网站按完整域名边界匹配，不会把 <code>notexample.com</code> 当成 <code>example.com</code>。</p>
+<p>没有记录只表示本次采样尚未检测到，极短连接也可能漏过。链路里的节点名不是公网 IP；工具不会自动请求外部 IP 服务，也不会替你断开所有旧连接。</p>
+<p><a id="faq"></a></p>
+<h2 id="9">9. 常见问题：按症状找答案</h2>
+<h3 id="ip">已选直连，网页为什么还显示代理 IP？</h3>
+<p>依次检查：是否仍在 Global 模式 → 状态是不是“规则已加载” → 当前域名是否就是查 IP 的域名 → 是否复用了旧连接。把 A 站设直连，再到 B 站查 IP，测到的是 B 站的路线。必要时用“检查分流”观察一次新请求；旧页面不自动刷新。</p>
+<h3 id="_3">显示“规则已加载”，是不是保证应用已经直连？</h3>
+<p>不是。它只确认配置层；应用还必须使用 Clash，域名／进程必须匹配，并且新请求实际命中对应规则。用主动观察补充证据。</p>
+<h3 id="_4">找不到应用？</h3>
+<p>先清空搜索，点“扫描应用”。便携程序可“手动补充”选择 EXE。应用移动或重装后原路径可能失效。</p>
+<h3 id="_5">控制器未连接，必须手填端口吗？</h3>
+<p>先打开 Verge。默认安装位置通常可自动识别。自定义配置目录可在“设置与说明”指定；只有自动识别失败才进入“高级连接配置”。密钥仅填本机窗口，不发到 GitHub Issue 或截图中。连接配置保存后按窗口提示重启 ClashDock。</p>
+<h3 id="verge_1">显示“未找到 Verge 全局扩展脚本”？</h3>
+<p>当前 Verge 配置需要支持并初始化全局扩展脚本。先在 Verge 核对这一功能，别用手改订阅文件来绕过检查。不支持该配置结构的客户端不能保证兼容。</p>
+<h3 id="_6">显示“配置被覆盖”或“非托管规则不一致”？</h3>
+<p>先在 Verge 核对并重新生成／应用你想使用的订阅，确认当前配置正确，再回 ClashDock 预览“重新应用全部分流”。工具拒绝不一致是为了保留原规则；不要删除配置或无限重试。</p>
+<h3 id="_7">扩展提示找不到通信桥？</h3>
+<p>确认四个主要文件／目录相邻，打开桌面“Edge 通信桥检查／注册”。根据具体层级修复当前安装，再核对扩展 ID。不要把所有错误都当成未注册，也不要无依据关闭浏览器。宿主退出、来源拒绝或超时会保留原始错误供排查。</p>
+<h3 id="_8">扩展提示未连接桌面？</h3>
+<p>保持 ClashDock 运行。桥已经注册时，可点击扩展内的“启动 ClashDock”；若桥本身缺失，先完成桌面注册。浏览器请求历史附带时间，仅供回看，不保证当前仍连接。</p>
+<h3 id="_9">同一域名两个标签页能分别代理吗？</h3>
+<p>不能。网站规则是内核的域名规则，也可能影响其他应用访问同域名；不是标签页独立代理。</p>
+<h3 id="_10">为什么校园网认证仍打不开？</h3>
+<p>直连不保证能解决认证。认证还可能涉及 DNS、路由和系统现有代理配置。本版本不管理 TUN，不猜学校地址，也不保存校园网密码。</p>
+<p><a id="maintenance"></a></p>
+<h2 id="10">10. 更新、备份、暂停与卸载</h2>
+<h3 id="_11">更新到新版本</h3>
+<ol>
+<li>从 GitHub Release 下载新的便携包，先解压到另一个目录。</li>
+<li>从托盘退出旧 ClashDock，等待正在进行的修改结束。失败或保存错误先处理，别直接覆盖。</li>
+<li>备份旧目录；复制新 EXE、扩展、脚本和说明到原安装目录，<strong>保留原有个人配置文件</strong>。</li>
+<li>重新打开 ClashDock；如果使用 Edge 扩展，在扩展页点“重新加载”。</li>
+<li>打开通信桥只读检查。整个目录换位置时，应先从旧目录卸载注册，再在新目录注册；不要只移动一个 EXE。</li>
+</ol>
+<p>个人数据文件包括 <code>settings.json</code>、<code>routing-intent.json</code>（若存在）、<code>routing-intent.json.undo</code> 和 <code>ui-preferences.json</code>。它们只在本机产生，正式便携包不携带任何人的这些文件。备份是私有的，不要上传整个安装目录或分享个人文件。</p>
+<h3 id="_12">暂停和退出有什么不同？</h3>
+<ul>
+<li><strong>关闭窗口／Esc</strong>：回到托盘，程序继续运行。</li>
+<li><strong>退出</strong>：停止工具，已安装的规则仍保留。</li>
+<li><strong>暂停分流</strong>：撤下 ClashDock 管理的规则，保留原订阅和恢复意图。</li>
+<li><strong>恢复分流</strong>：重新应用保存的意图，会影响实际网络。</li>
+</ul>
+<h3 id="_13">不再使用</h3>
+<ol>
+<li>如果要撤销分流，先到 <strong>设置与说明 → 移除全部托管规则</strong>，确认并等待结果。这会改变实际分流，不只是删除软件。</li>
+<li>若用过 Edge 扩展，从当前安装的 PowerShell 运行 <code>BridgeTools/Unregister-Bridge.ps1</code>，或按扩展指南卸载当前用户注册；然后在 Edge 扩展页移除扩展。</li>
+<li>托盘退出后，再按需删除便携目录。需要保留个人设置时先做私有备份。</li>
+</ol>
+<p>不要只删除 EXE 并假定规则已经撤销。不要把本工具的“移除托管规则”当成清空整个订阅。</p>
+<p><a id="more"></a></p>
+<h2 id="11">11. 反馈问题与已知限制</h2>
+<p>提问前先看状态及“检查分流”。<a href="https://github.com/LeoLi006/ClashDock/issues">提交 Issue</a> 时说明软件版本、Windows 版本、操作步骤、期望与实际结果；截图遮住密钥、订阅链接、个人路径和私人网站。不要附完整个人配置或完整连接列表。</p>
+<p>本版本未强制接管所有特殊进程，不提供每网站独立节点、标签页独立代理、TUN 管理、自动断开旧连接或公网 IP 实测。订阅更新后可能需要重新核验；极短连接可能漏采。</p>
+<p>详细技术与验证边界见 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/DEVELOPMENT.md">开发说明</a>、<a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/VALIDATION.md">验证记录</a> 和 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/THIRD_PARTY_NOTICES.md">第三方声明</a>。</p><div class="end">ClashDock v1.2.0 正式版使用手册 · 本文无需联网即可阅读。访问发布页或反馈链接时才会打开 GitHub。软件不会因为阅读本文自动修改网络。</div></main></body></html>

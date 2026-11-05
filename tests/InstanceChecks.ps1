@@ -1,3 +1,4 @@
+﻿param([string]$DesktopBuildDirectory = "ui-build", [string]$FixtureName = "instance-fixture")
 $ErrorActionPreference = 'Stop'
 $artifactRoot = Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts'
 Add-Type @"
@@ -10,10 +11,10 @@ public static class WindowProbe {
  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
 }
 "@
-$fixture = Join-Path $artifactRoot 'instance-fixture'
+$fixture = Join-Path $artifactRoot $FixtureName
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
 $exe = Join-Path $fixture 'ClashDock.exe'
-Copy-Item -LiteralPath (Join-Path $artifactRoot 'ui-build\ClashDock.exe') -Destination $exe -Force
+Copy-Item -LiteralPath (Join-Path (Join-Path $artifactRoot $DesktopBuildDirectory) 'ClashDock.exe') -Destination $exe -Force
 @{UseManualController=$true;Host='127.0.0.1';Port=1;Secret='';Routing=@{Proxy='';Applications=@();Websites=@()}} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $fixture 'settings.json') -Encoding utf8
 $result = [ordered]@{}
 function VisibleHandle($process) {

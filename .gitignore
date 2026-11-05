@@ -15,3 +15,6 @@ routing-intent.json*
 
 ui-preferences.json*
 native-host/
+
+**/__pycache__/
+*.pyc

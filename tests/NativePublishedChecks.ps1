@@ -1,9 +1,10 @@
+﻿param([string]$DesktopBuildDirectory = "artifacts\ui-build", [string]$BridgeBuildDirectory = "artifacts\bridge-build", [string]$FixtureName = "native-published-fixture")
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
-$fixture=Join-Path $root 'artifacts\native-published-fixture'
+$fixture=Join-Path (Join-Path $root 'artifacts') $FixtureName
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $root 'artifacts\ui-build\ClashDock.exe') -Destination $fixture -Force
-Copy-Item -LiteralPath (Join-Path $root 'artifacts\bridge-build\ClashDock.Bridge.exe') -Destination $fixture -Force
+Copy-Item -LiteralPath (Join-Path (Join-Path $root $DesktopBuildDirectory) 'ClashDock.exe') -Destination $fixture -Force
+Copy-Item -LiteralPath (Join-Path (Join-Path $root $BridgeBuildDirectory) 'ClashDock.Bridge.exe') -Destination $fixture -Force
 $config=Join-Path $fixture 'settings.json'
 @{UseManualController=$true;Host='127.0.0.1';Port=1;Secret='';Routing=@{VergeDirectory=(Join-Path $fixture 'no-verge');Proxy='';Applications=@();Websites=@()}} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $config -Encoding utf8
 $before=(Get-FileHash -LiteralPath $config).Hash

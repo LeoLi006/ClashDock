@@ -65,3 +65,12 @@ dotnet publish Bridge/ClashDock.Bridge.csproj -c Release -o artifacts/bridge-bui
 BridgeHealth 复用 PowerShell 5.1/7 安装脚本，固定脚本名及 ArgumentList，重定向 UTF8 输出，15 秒上限和关闭取消；不传任意命令。BridgeEnvelope 的 BrowserProcessObserved 来自桥对 msedge／cmd→msedge 的有限父进程检查，不来自扩展参数。桌面只记录只读请求时间，不持久化；这是诊断线索，并非防御同账户恶意软件的密码学证明，也不意味着当前仍连接。直接启动桥不会产生此记录。未识别的启动链保守地不记录成功。
 
 定向检查：测试 EXE 支持 --subscription-only（10项）及 --reliability-only（状态、队列、失败、取消、旧配置、脚本 UTF8、隔离界面）；node tests/ExtensionChecks.cjs 与 tests/RenderPopup.cjs 验证扩展通信、过期响应、全量重试预览及 100/125/150% 等效视口。模拟写入仅使用隔离控制器；真实部署只读核验，不能沿用以前的一次授权去重放真实规则。
+
+
+## v1.2.0 正式交付
+
+面向使用者的首页是 README，完整操作说明在使用说明.md；docs/使用手册.html 为带内嵌示意图的离线手册。更新 Markdown 后运行 `python tools/build_user_guide.py` 生成，开发环境需 Python Markdown（软件使用者不需要 Python）。
+
+正式构建分别输出到 artifacts/release-v1.2.0/build/desktop 与 build/bridge。`tools/package_release.py --desktop <桌面EXE> --bridge <桥EXE>` 只按白名单收集构建结果、公共扩展、维护脚本、说明及许可证，拒绝混入已有安装目录。输出 ZIP、独立 HTML 手册、内外 SHA256SUMS 和本地检查报告。不将整个 publish 目录复制上传。
+
+包内 BUILD_INFO 记录打包时的源码提交，正式版本使用 v1.2.0 标签。发布前使用 `tests/InstanceChecks.ps1 -DesktopBuildDirectory release-v1.2.0\build\desktop -FixtureName release-instance-fixture` 和 `tests/NativePublishedChecks.ps1 -DesktopBuildDirectory artifacts\release-v1.2.0\build\desktop -BridgeBuildDirectory artifacts\release-v1.2.0\build\bridge -FixtureName release-native-fixture` 检查候选二进制。它们只在独立夹具写示例配置，不注册真实桥、不提交真实网络修改。
