@@ -32,6 +32,7 @@ for doc in ['README.md', '使用说明.md', 'EDGE_EXTENSION.md', 'DEVELOPMENT.md
 shutil.copy2(ROOT / 'docs/使用手册.html', folder / '使用手册.html')
 (folder / 'docs/images').mkdir(parents=True)
 shutil.copy2(ROOT / 'docs/images/edge-popup.png', folder / 'docs/images/edge-popup.png')
+shutil.copy2(ROOT / 'docs/使用手册.html', folder / 'docs/使用手册.html')
 deps = json.loads((ROOT / 'obj/Release/net9.0-windows/win-x64/ClashDock.deps.json').read_text(encoding='utf-8'))
 core_version = next(x.rsplit('/', 1)[1] for x in deps['libraries'] if x.startswith('runtimepack.Microsoft.NETCore.App.Runtime.win-x64/'))
 desktop_version = next(x.rsplit('/', 1)[1] for x in deps['libraries'] if x.startswith('runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/'))
@@ -69,7 +70,7 @@ changed = subprocess.check_output(['git','diff','--name-only',binary_commit,'HEA
 if changed.strip(): raise SystemExit('Runtime sources changed after binary build; rebuild before packaging')
 (folder / 'BUILD_INFO.txt').write_text('ClashDock 1.2.0\nPlatform: win-x64, self-contained\nSource commit: ' + commit + '\nBinary source commit: ' + binary_commit + '\nTag: v1.2.0\nPersonal settings: not included\n', encoding='utf-8')
 allowed_top = {'ClashDock.exe','ClashDock.Bridge.exe','README.md','使用说明.md','使用手册.html','EDGE_EXTENSION.md','DEVELOPMENT.md','VALIDATION.md','THIRD_PARTY_NOTICES.md','CHANGELOG.md','LICENSE.txt','ThirdPartyNotices.txt','开始使用.txt','BUILD_INFO.txt','SHA256SUMS.txt'}
-allowed_children = {f'{directory}/{file}' for directory, names in public_assets.items() for file in names} | {'docs/images/edge-popup.png', 'licenses/WindowsDesktop-LICENSE.txt'}
+allowed_children = {f'{directory}/{file}' for directory, names in public_assets.items() for file in names} | {'docs/images/edge-popup.png', 'docs/使用手册.html', 'licenses/WindowsDesktop-LICENSE.txt'}
 files = sorted(x for x in folder.rglob('*') if x.is_file())
 for file in files:
     rel = file.relative_to(folder).as_posix()
