@@ -2,6 +2,21 @@
 
 独立的 Windows 应用／网站分流工具，连接本机 Clash Verge / Mihomo。**不管理 TUN，不强制接管软件，不集成 Leo。**
 
+## 当前更新
+
+本次 `main` 更新集中完善自动分流、Edge 联动和可靠性：
+
+- 应用自动发现、名称／图标展示、搜索和置顶；目标延迟与测速状态共用缓存。
+- 选择自动保存、防抖串行应用；区分保存意图、规则核验和连接观察。
+- Edge 扩展管理当前域名及子域名，直连显示“预期出口”；节点详情折叠。
+- 重新应用全部分流需先预览规则数量及影响范围；失败保留选择，不盲目重放。
+- 桌面内置通信桥检查／当前用户注册；兼容 PowerShell 5.1／7 和中文路径。
+- 修复 IPv6 类型别名、GEOIP 国家代码大小写及错误分类误判。
+
+完整记录见 [更新日志](CHANGELOG.md)，测试边界见 [验证记录](VALIDATION.md)。
+
+**仓库源码不包含本地 EXE、个人配置或通信桥注册清单。** `publish/` 是构建输出目录；下载源码后请按下文构建。GitHub Release 与 `main` 源码分别维护，旧发布包可能不含上述更新。
+
 ## 快速开始
 
 1. 运行 `publish/ClashDock.exe`，普通启动直接显示工作台；重复运行唤起已有窗口。
@@ -19,7 +34,7 @@
 - 关闭窗口 / Esc：回到托盘，后台完成排队修改。
 - 托盘：打开主界面、暂停／恢复分流、退出。
 - **退出保留已安装规则**；暂停仅撤下 ClashDock 托管规则，保留订阅和用户脚本。退出前等待队列；失败意图落盘，下次启动需手动重试，不自动争抢配置。
-- 静默启动：`ClashDock.exe --silent`，供开机自启使用。本轮不自动修改启动项。
+- 静默启动：`ClashDock.exe --silent`，供开机自启使用，不自动修改启动项。
 - 代理目标框及下拉直接显示名称、路径与延迟/状态；与“目标状态”窗口共用缓存。“测速 / 刷新”中可读取历史、测当前、全部测速，全局并发上限 2。显示时间与陈旧提示，无历史不会当成超时。节点身份和显示文字分开，刷新测速不切换目标或应用规则。
 - 选中应用／网站 → “检查分流”：先只读核验控制器、意图、暂停、模式和托管规则，再可观察 15 秒新连接。原始进程/域名/规则/链路放在可展开详情；缺路径仅标注名称候选，没有记录仅说明“尚未检测到”。链路不是公网出口 IP。
 - 常用站点模板可先编辑域名列表，包含 B 站资源域名；双击已有网站名称修改域名。
@@ -38,12 +53,22 @@
 Windows、.NET 9 SDK：
 
 ```powershell
-dotnet build ClashDock.csproj -c Release
-dotnet publish ClashDock.csproj -c Release -o artifacts/ui-build
-dotnet publish Bridge/ClashDock.Bridge.csproj -c Release -o artifacts/bridge-build
+dotnet publish ClashDock.csproj -c Release -o publish
+dotnet publish Bridge/ClashDock.Bridge.csproj -c Release -o publish
+Copy-Item EdgeExtension, BridgeTools -Destination publish -Recurse -Force
+.\publish\ClashDock.exe
+```
+
+保持两个 EXE 与 `EdgeExtension/`、`BridgeTools/` 相邻。首次扩展安装按 [安装指南](EDGE_EXTENSION.md) 完成。已有安装更新前先退出程序，保留其个人配置。
+
+本轮直接相关的开发检查：
+
+```powershell
 dotnet build tests/ClashDock.Checks.csproj -c Release
-.\tests\bin\Release\net9.0-windows\win-x64\ClashDock.Checks.exe
+.\tests\bin\Release\net9.0-windows\win-x64\ClashDock.Checks.exe --subscription-only
+.\tests\bin\Release\net9.0-windows\win-x64\ClashDock.Checks.exe --reliability-only
 node tests/ExtensionChecks.cjs
+node tests/RenderPopup.cjs
 ```
 
 桌面端和通信桥分别是 win-x64 自包含单文件，无需另装 .NET。保留 EXE 同目录个人 `settings.json`、`routing-intent.json` 、撤销记录与 `ui-preferences.json`；这些文件不提交 Git。直接替换 EXE 前退出旧程序。
