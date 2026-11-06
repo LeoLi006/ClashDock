@@ -13,7 +13,7 @@
 
 ## 扩展与本机桥
 
-`EdgeExtension` 是 MV3 弹窗，无内容脚本、无后台全站采集，仅 activeTab/nativeMessaging。`ClashDock.Bridge` 是独立 .NET 控制台 EXE，使用官方 Native Messaging 长度前缀 UTF-8 JSON；共享 `BridgeProtocol.cs`，消息最大 64 KiB、深度 12，未知字段/操作拒绝。读取队列最多 16，断开取消在途转发；stdout 只写协议帧。
+`EdgeExtension` 是 MV3 弹窗，无内容脚本、无后台全站采集，本地侧栏版使用 activeTab/nativeMessaging/sidePanel/tabs。`ClashDock.Bridge` 是独立 .NET 控制台 EXE，使用官方 Native Messaging 长度前缀 UTF-8 JSON；共享 `BridgeProtocol.cs`，消息最大 64 KiB、深度 12，未知字段/操作拒绝。读取队列最多 16，断开取消在途转发；stdout 只写协议帧。
 
 桥仅接受固定 `chrome-extension://opbdfefdnighegepeiffmioofdkkphnk/`。注册清单的 allowed_origins 仅此一项；扩展 manifest 公钥固定 ID。桥只连接同用户、同安装目录派生的命名管道；启动动作只可启动相邻 `ClashDock.exe --silent`，不存在传入命令或任意文件读写接口。不会修改 Edge 全局代理或浏览器安全策略。
 
@@ -60,7 +60,7 @@ dotnet publish Bridge/ClashDock.Bridge.csproj -c Release -o artifacts/bridge-bui
 
 `retry` 必须附 `confirmAll:true` 和预览时的 session/baseRevision。缺确认返回 confirmation_required；过期或已变化的预览拒绝执行。旧包格式与已存路由不变，旧客户端仍可读取／选择；旧的未确认 retry 不会静默执行。界面仅展示计数与范围，不发送应用路径清册。
 
-扩展以 revision/snapshot、当前域名和已退休 session 拒绝过期数据；冲突不再自动重放写请求。浏览器错误原文用 textContent 显示，权限仍只有 activeTab/nativeMessaging。
+扩展以 revision/snapshot、当前域名和已退休 session 拒绝过期数据；冲突不再自动重放写请求。浏览器错误原文用 textContent 显示，本地侧栏版另申请 sidePanel/tabs，仅用于侧栏和当前标签地址识别。
 
 BridgeHealth 复用 PowerShell 5.1/7 安装脚本，固定脚本名及 ArgumentList，重定向 UTF8 输出，15 秒上限和关闭取消；不传任意命令。BridgeEnvelope 的 BrowserProcessObserved 来自桥对 msedge／cmd→msedge 的有限父进程检查，不来自扩展参数。桌面只记录只读请求时间，不持久化；这是诊断线索，并非防御同账户恶意软件的密码学证明，也不意味着当前仍连接。直接启动桥不会产生此记录。未识别的启动链保守地不记录成功。
 
@@ -74,3 +74,9 @@ BridgeHealth 复用 PowerShell 5.1/7 安装脚本，固定脚本名及 ArgumentL
 正式构建分别输出到 artifacts/release-v1.2.0/build/desktop 与 build/bridge。`tools/package_release.py --desktop <桌面EXE> --bridge <桥EXE>` 只按白名单收集构建结果、公共扩展、维护脚本、说明及许可证，拒绝混入已有安装目录。输出 ZIP、独立 HTML 手册、内外 SHA256SUMS 和本地检查报告。不将整个 publish 目录复制上传。
 
 包内 BUILD_INFO 记录打包时的源码提交，正式版本使用 v1.2.0 标签。发布前使用 `tests/InstanceChecks.ps1 -DesktopBuildDirectory release-v1.2.0\build\desktop -FixtureName release-instance-fixture` 和 `tests/NativePublishedChecks.ps1 -DesktopBuildDirectory artifacts\release-v1.2.0\build\desktop -BridgeBuildDirectory artifacts\release-v1.2.0\build\bridge -FixtureName release-native-fixture` 检查候选二进制。它们只在独立夹具写示例配置，不注册真实桥、不提交真实网络修改。
+
+## 本地侧边栏接入（2026-11-06）
+
+`sidepanel.html` 和 `popup.html` 使用同一个 `popup.js`、`state.js` 与 CSS。两份静态标记由 ExtensionChecks 的一致性断言约束；新增 UI 时必须同步。没有后台写入代理、第二份规则或自动重放。每个视图独立 Native Messaging 连接，共用桌面端既有串行应用队列。窗口 ID 在首次读取时绑定，标签激活／导航立即使读取代次失效；排队写入捕获域名和上下文代次，切换后丢弃未发送项。在途响应不能更新新域名视图。关闭时释放本视图监听与端口，不撤销桌面已接收操作。状态断开后由用户刷新重连，不无限重试。
+
+`tests/ExtensionChecks.cjs` 核验协议、权限及固定 ID；`tests/RenderPopup.cjs` 通过隔离模拟宿主验证 UI 和竞态；`tests/SidePanelEdge.cjs` 使用独立 Edge 配置打开真实侧栏并发起只读 state，不测试真实写入。测试只终止自己创建的浏览器进程。包白名单已包含 sidepanel.html。本轮没有更改 C#、EXE 或通信协议，不重建相同 EXE；本地扩展文件统一更新。

@@ -20,7 +20,7 @@ folder.mkdir(parents=True)
 for source, target in [(args.desktop, 'ClashDock.exe'), (args.bridge, 'ClashDock.Bridge.exe')]:
     shutil.copy2(source, folder / target)
 public_assets = {
-    'EdgeExtension': ['manifest.json','popup.html','popup.css','popup.js','state.js','icon16.png','icon32.png','icon48.png','icon128.png'],
+    'EdgeExtension': ['manifest.json','sidepanel.html','popup.html','popup.css','popup.js','state.js','icon16.png','icon32.png','icon48.png','icon128.png'],
     'BridgeTools': ['Register-Bridge.ps1','Check-Bridge.ps1','Unregister-Bridge.ps1']
 }
 for directory, names in public_assets.items():

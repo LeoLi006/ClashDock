@@ -1,6 +1,6 @@
 'use strict';
 (()=>{
- const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-mode]')];let domain=null,tabId=null,state=null,sequence=0,wanted=null,optimistic=null,sending=false,readGeneration=0,poll=null,closed=false,connected=false,templates=[],retryPreview=null;const retiredSessions=new Set();
+ const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-mode]')];let domain=null,tabId=null,state=null,sequence=0,wanted=null,optimistic=null,sending=false,readGeneration=0,poll=null,closed=false,connected=false,templates=[],retryPreview=null;let contextEpoch=0,contextTab=null,contextRead=0,ownerWindow=null;const retiredSessions=new Set();
  const channel=new ClashDockUI.Channel(name=>chrome.runtime.connectNative(name),()=>{const error=chrome.runtime.lastError?.message||'Native host disconnected';offline(ClashDockUI.nativeError(error));return error});
  const codes={waiting:'等待应用',applying:'正在应用',saved:'已保存但未生效',applied:'规则已加载 · 未验证实际出口',paused:'已暂停',retry:'应用失败',save_failed:'配置保存失败',overwritten:'托管规则缺失或变化',controller_offline:'控制器未连接',unknown:'尚待核验',mode_bypass:'当前模式不按规则分流',target_missing:'代理目标失效',target_mismatch:'策略组选择变化'};
  function notice(text){$('notice').textContent=text}
@@ -25,38 +25,44 @@
  function accept(next){
   if(!next||next.domain&&next.domain!==domain||retiredSessions.has(next.session))return false;
   if(state&&next.session===state.session&&(next.revision<state.revision||next.revision===state.revision&&(next.snapshot??0)<(state.snapshot??0)))return false;
-  if(state&&next.session!==state.session){retiredSessions.add(state.session);wanted=null;optimistic=null;retryPreview=null;$('retryPanel').hidden=true;}
+  if(state&&next.session!==state.session){retiredSessions.add(state.session);if(retiredSessions.size>16)retiredSessions.delete(retiredSessions.values().next().value);wanted=null;optimistic=null;retryPreview=null;$('retryPanel').hidden=true;}
   state=next;connected=true;return true;
  }
- async function context(){const tabs=await chrome.tabs.query({active:true,currentWindow:true});const tab=tabs[0];const next=ClashDockUI.siteFromUrl(tab?.pendingUrl||tab?.url||'');tabId=tab?.id??null;
-  if(next!==domain){domain=next;state=null;retryPreview=null;$('retryPanel').hidden=true;readGeneration++;wanted=null;notice('');buttons.forEach(b=>b.disabled=true);status('正在读取当前网站…');$('domain').textContent=domain??'此页面不支持网站分流';$('reloadTab').disabled=!domain;if(!domain){buttons.forEach(b=>b.disabled=true);$('templates').disabled=$('check').disabled=true;$('start').hidden=true;status('不适用','仅支持有有效域名的 HTTP / HTTPS 地址；内部页和文件页不操作规则。');}return true}return false;
+ async function context(){const ticket=++contextRead;const tabs=await chrome.tabs.query(ownerWindow==null?{active:true,currentWindow:true}:{active:true,windowId:ownerWindow});if(closed||ticket!==contextRead)return true;const tab=tabs[0];ownerWindow??=tab?.windowId??null;const next=ClashDockUI.siteFromUrl(tab?.pendingUrl||tab?.url||'');tabId=tab?.id??null;
+  if(next!==domain||contextTab!==tabId){contextTab=tabId;contextEpoch++;optimistic=null;domain=next;state=null;$('intent').textContent='正在读取已保存选择';$('expected').textContent='预期出口：尚未读取';retryPreview=null;$('retryPanel').hidden=true;$('templatePanel').open=false;readGeneration++;wanted=null;notice('');buttons.forEach(b=>b.disabled=true);status('正在读取当前网站…');$('domain').textContent=domain??'此页面不支持网站分流';$('reloadTab').disabled=!domain;if(!domain){buttons.forEach(b=>b.disabled=true);$('templates').disabled=$('check').disabled=true;$('start').hidden=true;status('不适用','仅支持有有效域名的 HTTP / HTTPS 地址；内部页和文件页不操作规则。');}return true}return false;
  }
  function schedule(){clearTimeout(poll);if(!closed&&connected&&domain&&state)poll=setTimeout(()=>reload(),1500)}
- async function reload(){if(closed)return;if(sending||wanted){schedule();return}try{await context();if(!domain)return;const current=++readGeneration,scope=domain;const reply=await channel.request('state',{domain:scope});if(closed||current!==readGeneration||scope!==domain||sending)return;
+ async function reload(){let requestEpoch=contextEpoch;if(closed)return;if(sending||wanted){schedule();return}try{await context();requestEpoch=contextEpoch;if(!domain)return;const current=++readGeneration,scope=domain;const reply=await channel.request('state',{domain:scope});if(closed||current!==readGeneration||scope!==domain||sending)return;
    if(!reply.ok){offline(reply.message);return}if(accept(reply.data)){render();notice('');}schedule();
-  }catch(error){if(!closed)offline(ClashDockUI.nativeError(String(error?.message||error)))}
+  }catch(error){if(!closed&&requestEpoch===contextEpoch)offline(ClashDockUI.nativeError(String(error?.message||error)))}
  }
  async function ensureContext(){const changed=await context();if(changed){await reload();notice('页面地址已变化，请确认域名后重新操作。');return false}return Boolean(domain&&state)}
- async function drain(){if(sending||!wanted)return;sending=true;clearTimeout(poll);try{while(wanted&&!closed){const item=wanted;wanted=null;const scope=domain,fields={domain:scope,mode:item.mode,session:item.guard?.session??state.session,baseRevision:item.guard?.revision??state.revision,sequence:item.sequence,...item.extra};let reply=await channel.request(item.op,fields);
-    if(scope!==domain)continue; if(reply.data)accept(reply.data);
+ async function drain(){if(sending||!wanted)return;const flightEpoch=contextEpoch;sending=true;clearTimeout(poll);try{while(wanted&&!closed){const item=wanted;wanted=null;if(item.epoch!==contextEpoch||item.domain!==domain)continue;const scope=item.domain,epoch=item.epoch,fields={domain:scope,mode:item.mode,session:item.guard?.session??state.session,baseRevision:item.guard?.revision??state.revision,sequence:item.sequence,...item.extra};let reply=await channel.request(item.op,fields);
+    if(scope!==domain||epoch!==contextEpoch)continue; if(reply.data)accept(reply.data);
     if(['session_changed','conflict','stale_sequence'].includes(reply.code)){
       wanted=null;optimistic=null;notice('桌面会话或配置已变化，未重放修改；请刷新并重新选择。');break;
     }
     if(item.sequence===sequence){optimistic=null;if(!reply.ok)notice(reply.message);else notice(reply.data?.intentSaved===false?'保存失败，选择仍在内存中；未确认应用。':'选择已接收；请以核验状态为准，不会自动刷新网页。');render();}
-   }}catch{wanted=null;notice('提交结果尚未确认。先刷新状态再决定是否重试，不自动重复操作。');offline('通信中断或超时；已被桌面端接收的修改不会撤销。')}
-  finally{sending=false;if(!closed){render();schedule()}}
+   }}catch{if(flightEpoch===contextEpoch){wanted=null;notice('提交结果尚未确认。先刷新状态再决定是否重试，不自动重复操作。');offline('通信中断或超时；已被桌面端接收的修改不会撤销。')}}
+  finally{sending=false;if(!closed){render();if(!state)void reload();else schedule()}}
  }
- async function queue(mode,op='setSite',extra={},guard=null){if(!await ensureContext())return;if(guard&&(guard.session!==state.session||guard.revision!==state.revision)){notice('配置已变化，请重新预览全部分流。');return;}sequence++;optimistic=op==='setSite'?mode:null;wanted={mode,op,extra,sequence,guard};render();void drain()}
+ async function queue(mode,op='setSite',extra={},guard=null){if(!await ensureContext())return;if(guard&&(guard.session!==state.session||guard.revision!==state.revision)){notice('配置已变化，请重新预览全部分流。');return;}sequence++;optimistic=op==='setSite'?mode:null;wanted={mode,op,extra,sequence,guard,domain,epoch:contextEpoch};render();void drain()}
  buttons.forEach(b=>b.addEventListener('click',()=>queue(b.dataset.mode)));
  $('refresh').addEventListener('click',()=>{notice('');void reload()});
  $('start').addEventListener('click',async()=>{try{const r=await channel.request('start');notice(r.message);if(r.ok)setTimeout(()=>reload(),1800)}catch(error){notice(ClashDockUI.nativeError(String(error?.message||error)))}});
  $('retry').addEventListener('click',()=>{if(!state||sending||wanted)return;retryPreview={session:state.session,revision:state.revision};$('retryScope').textContent=state.retryScope||('将重新应用全部分流：'+(state.applicationCount??'未知')+' 条应用规则、'+(state.websiteCount??'未知')+' 条网站规则。不仅当前网站；可能重载配置，旧连接不自动断开。');$('retryPanel').hidden=false;});
  $('cancelRetry').addEventListener('click',()=>{retryPreview=null;$('retryPanel').hidden=true;});
  $('confirmRetry').addEventListener('click',()=>{if(!retryPreview||!state||retryPreview.session!==state.session||retryPreview.revision!==state.revision){notice('配置已变化，请重新预览。');return;}const guard=retryPreview;retryPreview=null;$('retryPanel').hidden=true;void queue(state.mode??'自动','retry',{confirmAll:true},guard);});
- $('check').addEventListener('click',async()=>{if(!await ensureContext())return;try{const r=await channel.request('check',{domain,session:state.session});notice(r.message)}catch{notice('检查窗口未确认打开，请刷新后重试。')}});
- $('reloadTab').addEventListener('click',async()=>{if(tabId!=null){await chrome.tabs.reload(tabId);notice('已按你的操作刷新网页。')}});
+ $('check').addEventListener('click',async()=>{if(!await ensureContext())return;try{const epoch=contextEpoch;const r=await channel.request('check',{domain,session:state.session});if(epoch===contextEpoch)notice(r.message)}catch{notice('检查窗口未确认打开，请刷新后重试。')}});
+ $('reloadTab').addEventListener('click',async()=>{if(!await ensureContext())return;if(tabId!=null){await chrome.tabs.reload(tabId);notice('已按你的操作刷新网页。')}});
  function renderTemplate(){const t=templates.find(t=>t.id===$('templateSelect').value);$('templateDomains').replaceChildren();for(const host of t?.domains??[]){const label=document.createElement('label');label.className='domain-option';const cb=document.createElement('input');cb.type='checkbox';cb.checked=true;cb.value=host;const text=document.createElement('span');text.textContent=host;label.append(cb,text);$('templateDomains').append(label)}}
- $('templates').addEventListener('click',async()=>{try{const r=await channel.request('templates');if(!r.ok){notice(r.message);return}templates=r.data;$('templateSelect').replaceChildren();for(const t of templates){const o=document.createElement('option');o.value=t.id;o.textContent=t.name;$('templateSelect').append(o)}renderTemplate();$('templatePanel').open=true;}catch{notice('模板读取失败，请刷新通信状态。')}});
+ $('templates').addEventListener('click',async()=>{try{const epoch=contextEpoch;const r=await channel.request('templates');if(epoch!==contextEpoch||closed)return;if(!r.ok){notice(r.message);return}templates=r.data;$('templateSelect').replaceChildren();for(const t of templates){const o=document.createElement('option');o.value=t.id;o.textContent=t.name;$('templateSelect').append(o)}renderTemplate();$('templatePanel').open=true;}catch{notice('模板读取失败，请刷新通信状态。')}});
  $('templateSelect').addEventListener('change',renderTemplate);$('applyTemplate').addEventListener('click',()=>{const domains=[...$('templateDomains').querySelectorAll('input:checked')].map(i=>i.value);if(!domains.length){notice('请至少选择一个域名。');return}void queue($('templateMode').value,'applyTemplate',{template:$('templateSelect').value,domains})});
- addEventListener('unload',()=>{closed=true;clearTimeout(poll);channel.close()});void reload();
+ function changed(){contextEpoch++;readGeneration++;contextRead++;wanted=null;optimistic=null;state=null;contextTab=null;buttons.forEach(b=>b.disabled=true);$('check').disabled=$('templates').disabled=$('reloadTab').disabled=true;status('正在切换网站…');void context().then(()=>reload()).catch(e=>offline(String(e)));}
+ const activated=info=>{if(ownerWindow==null||info.windowId===ownerWindow)changed()};
+ const updated=(id,change)=>{if(id===tabId&&(change.url||change.status==='loading'))changed()};
+ chrome.tabs.onActivated?.addListener(activated);chrome.tabs.onUpdated?.addListener(updated);
+ const sidebar=$('sidebar');if(sidebar){sidebar.hidden=document.body.classList.contains('sidepanel');sidebar.disabled=!chrome.sidePanel?.open;sidebar.addEventListener('click',()=>{if(ownerWindow==null){notice('请等待读取当前标签页后再打开侧边栏。');return}chrome.sidePanel.open({windowId:ownerWindow}).catch(e=>notice('无法打开侧边栏：'+e.message));});}
+ buttons.forEach((b,i)=>b.addEventListener('keydown',e=>{let j=e.key==='ArrowRight'?(i+1)%buttons.length:e.key==='ArrowLeft'?(i+buttons.length-1)%buttons.length:e.key==='Home'?0:e.key==='End'?buttons.length-1:null;if(j!==null){e.preventDefault();buttons[j].focus()}}));
+ addEventListener('unload',()=>{closed=true;contextRead++;readGeneration++;chrome.tabs.onActivated?.removeListener(activated);chrome.tabs.onUpdated?.removeListener(updated);clearTimeout(poll);channel.close()});void reload();
 })();

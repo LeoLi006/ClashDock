@@ -6,7 +6,9 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAot51oMJZnwZBb9mQvGE5V9X4FIu7s/DMfv/typm34ymcusyL5MEkBBfOmcbJepw6mbcNiNKydpT6YQ7vlK1gv2J5IYMW8oUKU9lMAhROsv/E+f1IswlBP6psLMMtdsx2cDToP0Ob4hAOUij7Ze+Nk+6IZHwmPGueGufQz/P9hBpTBihiW/AkqPlbSlcNz86CVP82i30MheJyf8nw8+7ltLLiJXO1M5W7idpWQJVSxHstcr7GaS4b9wfD4RtPILqHuI7Jl7IfJBJUKu71R4Ma3ZbTK16ur7BLi5nrpW/N13OYzuHlYTcNdepwYmvQYOOZyUaFLlCeDwdWVTXw4e1siQIDAQAB",
   "permissions": [
     "nativeMessaging",
-    "activeTab"
+    "activeTab",
+    "sidePanel",
+    "tabs"
   ],
   "action": {
     "default_title": "ClashDock 网站分流",
@@ -23,5 +25,8 @@
     "32": "icon32.png",
     "48": "icon48.png",
     "128": "icon128.png"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   }
 }
