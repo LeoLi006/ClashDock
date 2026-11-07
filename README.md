@@ -2,7 +2,7 @@
 
 **为常用 Windows 应用和网站快速选择：自动、直连或代理。**
 
-独立桌面工具，复用本机 Clash Verge / Mihomo 的节点与规则，附可选 Edge 扩展。不附带订阅，不管理 TUN，不强制接管所有软件，不集成 Leo。
+独立桌面工具，复用本机 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) / [Mihomo](https://github.com/MetaCubeX/mihomo) 的节点与规则，附可选 Edge 扩展。不附带订阅，不管理 TUN，不强制接管所有软件。可单独运行，也可从 [Leo 桌面助手](https://github.com/LeoLi006/leo-desktop) 等启动入口打开。
 
 ## 下载使用
 
@@ -46,6 +46,17 @@
 固定 ID：`opbdfefdnighegepeiffmioofdkkphnk`。同域名标签页共用设置，也可能影响其他应用访问该域名；不是标签页独立代理。节点详情折叠，不自动刷新网页；不读取网页正文、密码、表单或完整浏览历史。
 
 首次安装、逐项操作、更新卸载及常见故障请看 **[使用手册](使用说明.md)**；注册脚本及具体通信错误见 [Edge 安装指南](EDGE_EXTENSION.md)。
+
+## 相关开源项目
+
+| 项目 | 与 ClashDock 的关系 |
+|---|---|
+| [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) | 推荐搭配的代理客户端，负责订阅、节点和内核运行；需要另行安装并配置。 |
+| [Mihomo](https://github.com/MetaCubeX/mihomo) | 提供进程／域名分流和控制器 API 的代理内核；通常由 Verge 自带和管理。 |
+| [Leo 桌面助手](https://github.com/LeoLi006/leo-desktop) | 可选桌面工具，可将 ClashDock 配置为快捷启动目标；只负责打开窗口，不参与 ClashDock 的规则执行，也不是必需依赖。 |
+| [YamlDotNet](https://github.com/aaubry/YamlDotNet) | ClashDock 使用的 YAML 解析库，随软件提供，无需用户单独安装。许可证见 [第三方声明](THIRD_PARTY_NOTICES.md)。 |
+
+ClashDock 与以上项目分别维护，不打包分发 Clash Verge Rev、Mihomo 或 Leo。日常使用只需保持 Verge 正常运行，再由 ClashDock 管理应用和网站的分流选择。
 
 ## 文档导航
 

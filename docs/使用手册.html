@@ -350,4 +350,29 @@ main{max-width:1100px;margin:26px auto 60px;background:#fff;padding:32px 48px 48
 <h2 id="11">11. 反馈问题与已知限制</h2>
 <p>提问前先看状态及“检查分流”。<a href="https://github.com/LeoLi006/ClashDock/issues">提交 Issue</a> 时说明软件版本、Windows 版本、操作步骤、期望与实际结果；截图遮住密钥、订阅链接、个人路径和私人网站。不要附完整个人配置或完整连接列表。</p>
 <p>本版本未强制接管所有特殊进程，不提供每网站独立节点、标签页独立代理、TUN 管理、自动断开旧连接或公网 IP 实测。订阅更新后可能需要重新核验；极短连接可能漏采。</p>
-<p>详细技术与验证边界见 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/DEVELOPMENT.md">开发说明</a>、<a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/VALIDATION.md">验证记录</a> 和 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/THIRD_PARTY_NOTICES.md">第三方声明</a>。</p><div class="end">ClashDock v1.2.0 正式版使用手册 · 本文无需联网即可阅读。访问发布页或反馈链接时才会打开 GitHub。软件不会因为阅读本文自动修改网络。</div></main></body></html>
+<p>详细技术与验证边界见 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/DEVELOPMENT.md">开发说明</a>、<a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/VALIDATION.md">验证记录</a> 和 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/THIRD_PARTY_NOTICES.md">第三方声明</a>。</p>
+<h2 id="2026-11-06-release">开发版：工具栏与侧边栏（2026-11-06，尚未制作新版 Release）</h2>
+<p>在 Edge 扩展管理页重新加载当前安装的 <code>publish/EdgeExtension</code>，如浏览器要求，请确认新增权限。扩展 ID、公钥、本机通信桥注册均保持不变。无需重新注册通信桥。</p>
+<ul>
+<li><strong>工具栏弹窗</strong>：适合快速改一次选择。点击网页、翻译提示等外部界面后，浏览器会自动收起弹窗，这是正常行为，不能强制保持。</li>
+<li><strong>侧边栏</strong>：在弹窗顶栏点“侧边栏 ↗”，适合一边操作网页一边查看状态。用 Edge 侧栏自己的关闭按钮收起；不会自动打开或关闭其他网页。</li>
+<li>两种界面共用桌面规则、通信协议、状态读取与自动应用队列。重新打开仅同步状态，不重放上次修改。桌面已经接收的修改继续由桌面处理；尚未收到确认的请求不能当成保存成功。</li>
+<li>侧栏跟随<strong>打开它的浏览器窗口</strong>中的活动标签页。先确认顶端域名再操作；切换标签页时未提交的选择会清除，旧响应会丢弃，已提交操作仍针对原域名。</li>
+<li>自动／直连／代理表示保存意图；“规则已加载”只表示规则核验，实际连接需在“检查分流”中主动观察。直连显示“预期出口：直连”，不是公网 IP 验证。</li>
+<li>延迟、时间、目标和模板在折叠详情里；“重新应用全部分流”需确认全部规则数量及影响，绝非只重试当前网站。手动刷新可能丢失网页表单，请自行确认。</li>
+<li>Tab 移动焦点，方向键／Home／End 在模式按钮间移动，Enter 或空格执行；方向键本身不会修改规则。</li>
+</ul>
+<p>新增 <code>sidePanel</code> 用于浏览器原生侧栏，<code>tabs</code> 用于跨标签页识别当前 URL。未增加网页注入、网页正文、密码、表单、代理控制或历史记录权限；不收集或保存浏览历史。旧版 Edge 若不支持 Side Panel API，按钮不可用，请保留工具栏方式或自行更新浏览器。</p>
+<p>侧栏展示和翻译浮层共存依赖 Edge 自身实现；已通过独立 Edge 的真实侧栏 API、DOM 渲染与只读通信验证，用户日常配置中的翻译提示交互仍需手动体验。不会为测试关闭你的浏览器。</p>
+<h2 id="2026-11-07">本地文件夹直接启动（2026-11-07）</h2>
+<p>本机 ClashDock 文件夹最外层提供 <code>ClashDock.exe</code>，双击即可打开主界面；已在运行时会唤起已有窗口。它启动 <code>publish/ClashDock.exe</code>，请保留 <code>publish</code> 文件夹，不要单独移动入口 EXE。个人配置与通信桥仍在原位置，无需重新注册。<code>--silent</code> 仅用于静默启动。</p>
+<p>源码使用 <code>tools/Build-LocalLauncher.ps1</code> 生成这个本地入口；正式便携包本身已有可直接双击的主程序，不需要此入口。</p>
+<h2 id="leo">相关项目与 Leo 快捷入口</h2>
+<ul>
+<li><a href="https://github.com/clash-verge-rev/clash-verge-rev">Clash Verge Rev</a>：推荐搭配的代理客户端，负责订阅、节点和内核运行。</li>
+<li><a href="https://github.com/MetaCubeX/mihomo">Mihomo</a>：处理实际代理连接、进程／域名规则和控制器 API 的内核，通常由 Verge 管理。</li>
+<li><a href="https://github.com/LeoLi006/leo-desktop">Leo 桌面助手</a>：可选的桌面快捷入口。将 ClashDock.exe 设置为启动目标后，可以从 Leo 打开 ClashDock；ClashDock 也可以完全独立使用。</li>
+<li><a href="https://github.com/aaubry/YamlDotNet">YamlDotNet</a>：软件使用的 YAML 解析库，无需另行安装；许可证见 <a href="https://github.com/LeoLi006/ClashDock/blob/v1.2.0/THIRD_PARTY_NOTICES.md">第三方声明</a>。</li>
+</ul>
+<p>本机 Leo 脚下工具栏原来的 Clash 开关入口已改为打开 ClashDock，图标常亮；点击仅启动或唤起窗口，不切换系统代理。该说明针对本机已更新的 Leo，其他版本需先配置相应快捷入口。最外层 ClashDock.exe 依赖 publish 文件夹，配置快捷入口后请保留整个文件夹。</p>
+<p>这些项目分别维护；ClashDock 不打包分发 Clash Verge Rev、Mihomo 或 Leo，Leo 不是运行 ClashDock 的前提。</p><div class="end">ClashDock v1.2.0 正式版使用手册 · 本文无需联网即可阅读。访问发布页或反馈链接时才会打开 GitHub。软件不会因为阅读本文自动修改网络。</div></main></body></html>
