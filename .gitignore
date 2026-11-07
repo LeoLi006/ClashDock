@@ -9,6 +9,7 @@ settings.json*
 tests/bin/
 tests/obj/
 artifacts/
+/ClashDock.exe
 *.clashdock*.bak
 
 routing-intent.json*
